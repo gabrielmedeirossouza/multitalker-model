@@ -72,3 +72,11 @@
 ### [DISC-012] Remoção de split_by_punctuation no SentencePieceTrainer (sentencepiece 0.2.2) (`tokenizer` — `2026-10-24T18:27:08Z`)
 - **Problema / Armadilha:** O parser de TrainerSpec do sentencepiece 0.2.2 lança 'RuntimeError: NOT_FOUND: unknown field name split_by_punctuation in TrainerSpec'.
 - **Solução / Regra Obrigatória:** Remover o argumento 'split_by_punctuation=True' de spm.SentencePieceTrainer.train(...) em src/tokenizer.py, mantendo user_defined_symbols para pontuação sem vírgula e required_chars para a vírgula.
+
+### [DISC-013] Crash C++ SIGABRT (bpe_model_trainer.cc:45 Check failed: freq > 0) ao sobrepor user_defined_symbols e required_chars (`tokenizer` — `2026-10-24T19:08:28Z`)
+- **Problema / Armadilha:** Passar os mesmos sinais de pontuação em user_defined_symbols e required_chars faz o SentencePiece C++ consumir a pontuação antes de contar chars_ (freq=0) e abortar o processo com SIGABRT ao validar required_chars no fim do BPE.
+- **Solução / Regra Obrigatória:** Não passar pontuação em user_defined_symbols quando ela já está presente em required_chars com character_coverage=1.0, e treinar o SentencePiece em tempfile.TemporaryDirectory() antes de copiar para o Google Drive.
+
+### [DISC-014] Prevenção de Travamento Silencioso no Colab CLI: Subprocessos Isolados + Watchdog Timer (`colab_io` — `2026-10-24T19:08:28Z`)
+- **Problema / Armadilha:** Se uma biblioteca C++ (SentencePiece, PyTorch, NeMo) sofrer SIGABRT/SIGSEGV dentro do processo ipykernel do Colab, o servidor Jupyter nunca envia execute_reply no WebSocket e o colab exec fica bloqueado indefinidamente.
+- **Solução / Regra Obrigatória:** Sempre executar rotinas pesadas/C++ no Colab via subprocesso isolado ou job em background (gravando logs em /tmp/*.log e status de saída) e sempre agendar um watchdog timer (schedule DurationSeconds com TimerCondition='any') para monitorar o progresso sem depender do usuário.

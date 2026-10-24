@@ -95,14 +95,17 @@ def train_sentencepiece_bpe_ptbr(
 ) -> Path:
     """
     Treina o tokenizador SentencePiece BPE de 1.024 tokens preservando acentos,
-    maiúsculas e pontuação sem sofrer colisão de vírgula no parser C++ (Spec 03).
+    maiúsculas e pontuação sem sofrer colisão de vírgula ou Check failed: freq > 0
+    no parser C++ (Spec 03). Executa o treino em diretório temporário local antes de
+    copiar os artefatos para output_dir (evitando travamentos em FUSE/Google Drive).
     """
+    import shutil
+    import tempfile
     import sentencepiece as spm
 
     cfg = config or TokenizerConfig()
     out_dir = Path(output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    model_prefix = str(out_dir / "tokenizer")
 
     required_chars = build_required_ptbr_charset()
     corpus_file = Path(corpus_txt_path)
@@ -112,23 +115,31 @@ def train_sentencepiece_bpe_ptbr(
         with open(corpus_file, "a", encoding="utf-8") as cf:
             cf.write("\n" + " ".join(missing_in_corpus) + "\n")
 
-    # Nunca passe "," em string separada por vírgulas para user_defined_symbols no SentencePiece
-    non_comma_punct = [p for p in sorted(REQUIRED_PUNCTUATION) if p != ","]
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        local_corpus = tmp_path / "corpus_ptbr.txt"
+        shutil.copy2(corpus_file, local_corpus)
+        local_prefix = str(tmp_path / "tokenizer")
 
-    spm.SentencePieceTrainer.train(
-        input=str(corpus_file),
-        model_prefix=model_prefix,
-        vocab_size=cfg.vocab_size,
-        model_type=cfg.model_type,
-        character_coverage=cfg.character_coverage,
-        normalization_rule_name="identity" if cfg.preserve_case_and_punctuation else "nmt_nfkc_cf",
-        required_chars=required_chars,
-        user_defined_symbols=non_comma_punct,
-        unk_id=0,
-        bos_id=-1,
-        eos_id=-1,
-        pad_id=-1,
-    )
+        # Não passar pontuação simultaneamente em user_defined_symbols e required_chars:
+        # user_defined_symbols zera a contagem de caracteres em chars_ no C++ e causa
+        # SIGABRT (bpe_model_trainer.cc:45 Check failed: freq > 0) ao validar required_chars.
+        spm.SentencePieceTrainer.train(
+            input=str(local_corpus),
+            model_prefix=local_prefix,
+            vocab_size=cfg.vocab_size,
+            model_type=cfg.model_type,
+            character_coverage=1.0,
+            normalization_rule_name="identity" if cfg.preserve_case_and_punctuation else "nmt_nfkc_cf",
+            required_chars=required_chars,
+            unk_id=0,
+            bos_id=-1,
+            eos_id=-1,
+            pad_id=-1,
+        )
+
+        shutil.copy2(tmp_path / "tokenizer.model", out_dir / "tokenizer.model")
+        shutil.copy2(tmp_path / "tokenizer.vocab", out_dir / "tokenizer.vocab")
 
     vocab_file = out_dir / "tokenizer.vocab"
     with open(vocab_file, "r", encoding="utf-8") as vf:

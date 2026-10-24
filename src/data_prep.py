@@ -276,22 +276,24 @@ def ensure_colab_dataset_ready(
         from src.state import complete_step, start_step
 
         start_step("step_01_data_prep_clean", notes=f"Baixando {dataset_key} (train + validation) no SSD do Colab.")
-    export_hf_dataset_to_nemo_manifest(
-        dataset_key=dataset_key,
-        split="train",
-        output_dir=str(local_root),
-        manifest_filename="clean_train_manifest.json",
-        max_samples=max_samples,
-        resume=True,
-    )
-    export_hf_dataset_to_nemo_manifest(
-        dataset_key=dataset_key,
-        split="validation",
-        output_dir=str(local_root),
-        manifest_filename="clean_val_manifest.json",
-        max_samples=max_samples,
-        resume=True,
-    )
+    if not (clean_train_manifest.exists() and clean_train_manifest.stat().st_size > 0):
+        export_hf_dataset_to_nemo_manifest(
+            dataset_key=dataset_key,
+            split="train",
+            output_dir=str(local_root),
+            manifest_filename="clean_train_manifest.json",
+            max_samples=max_samples,
+            resume=True,
+        )
+    if not (clean_val_manifest.exists() and clean_val_manifest.stat().st_size > 0):
+        export_hf_dataset_to_nemo_manifest(
+            dataset_key=dataset_key,
+            split="validation",
+            output_dir=str(local_root),
+            manifest_filename="clean_val_manifest.json",
+            max_samples=max_samples,
+            resume=True,
+        )
     if update_state:
         complete_step(
             step_id="step_01_data_prep_clean",
