@@ -117,3 +117,12 @@ Ao gerar ou revisar código neste projeto, verifique sempre estas 7 regras:
   python -m src.trainer --stage warmup --manifest /content/local_dataset/clean_train_manifest.json --val_manifest /content/local_dataset/clean_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state
   python -m src.trainer --stage multitalker --manifest /content/local_dataset/multitalker_train_manifest.json --val_manifest /content/local_dataset/multitalker_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker --update_state
   ```
+- **Operar o Google Colab remotamente via CLI (`~/.local/bin/colab`):**
+  ```bash
+  ~/.local/bin/colab sessions
+  ~/.local/bin/colab status
+  ~/.local/bin/colab new -s parakeet --high-mem            # Aloca CPU High-RAM (Steps 01-04)
+  ~/.local/bin/colab new -s parakeet --gpu A100 --high-mem # Aloca GPU A100 (Steps 05-07)
+  echo "import os; print(os.listdir('/content'))" | ~/.local/bin/colab exec -s parakeet --timeout 120
+  ~/.local/bin/colab stop -s parakeet
+  ```

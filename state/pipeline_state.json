@@ -1,7 +1,7 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-24T17:48:58Z",
+  "updated_at": "2026-10-24T18:11:03Z",
   "overall_status": "ready",
   "current_step_id": "step_01_data_prep_clean",
   "steps": [
@@ -203,6 +203,22 @@
       "title": "Verificação OmegaConf.is_config antes de open_dict(asr_model.cfg)",
       "problem": "No Colab (onde omegaconf está instalado), chamar open_dict(asr_model.cfg) quando cfg é um dict Python comum (ex.: em mocks de teste) falha com AttributeError: 'dict' object has no attribute '_get_node_flag'.",
       "solution": "Usar OmegaConf.is_config(asr_model.cfg) antes de entrar no bloco open_dict(), mantendo o fallback para dict puro."
+    },
+    {
+      "id": "DISC-010",
+      "timestamp": "2026-10-24T18:11:03Z",
+      "category": "data_prep",
+      "title": "Campo raw_transcription vs transcription no google/fleurs (datasets 4.8.5)",
+      "problem": "No dataset google/fleurs (pt_br), o campo 'transcription' remove toda pontuação e converte tudo para minúsculas, violando a Spec 03 que exige preservação de case e pontuação (., ?, -, vírgula).",
+      "solution": "Configurar SUPPORTED_HF_DATASETS['fleurs_pt'] para ler 'raw_transcription' (que preserva maiúsculas e pontuação original) com fallback automático para 'transcription'."
+    },
+    {
+      "id": "DISC-011",
+      "timestamp": "2026-10-24T18:11:03Z",
+      "category": "colab_io",
+      "title": "Automação Remota via Google Colab CLI (~/.local/bin/colab) e Adoção de Sessões",
+      "problem": "Sessões iniciadas pelo navegador no Google Colab aparecem como '[?]' em 'colab sessions' por não estarem registradas localmente em ~/.config/colab-cli/sessions.json, e 'colab exec' exige código via stdin ou '-f <arquivo>'.",
+      "solution": "Usar '~/.local/bin/colab' autenticado via OAuth2 (~/.config/colab-cli/token.json). Para adotar sessão já montada no navegador com /content/drive, registrar SessionState via state.client.list_assignments() em /Users/gabriel.medeiros/.local/share/uv/tools/google-colab-cli/bin/python e enviar código via stdin ('cat << EOF | ~/.local/bin/colab exec -s parakeet --timeout 600')."
     }
   ]
 }

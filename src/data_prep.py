@@ -22,7 +22,7 @@ from src.schemas import (
 
 SUPPORTED_HF_DATASETS = {
     "mls_pt": ("facebook/multilingual_librispeech", "portuguese", "transcript"),
-    "fleurs_pt": ("google/fleurs", "pt_br", "transcription"),
+    "fleurs_pt": ("google/fleurs", "pt_br", "raw_transcription"),
     "coraa": ("nilc-nlp/CORAA-ASR", "default", "text"),
     "common_voice_pt": ("mozilla-foundation/common_voice_17_0", "pt", "sentence"),
 }
@@ -136,7 +136,7 @@ def export_hf_dataset_to_nemo_manifest(
             if duration < min_duration or duration > max_duration:
                 continue
 
-            text = str(item.get(text_col, "")).strip()
+            text = str(item.get(text_col) or item.get("transcription") or "").strip()
             if not text:
                 continue
 

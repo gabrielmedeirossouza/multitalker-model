@@ -60,3 +60,11 @@
 ### [DISC-009] Verificação OmegaConf.is_config antes de open_dict(asr_model.cfg) (`omegaconf_colab` — `2026-10-24T17:48:58Z`)
 - **Problema / Armadilha:** No Colab (onde omegaconf está instalado), chamar open_dict(asr_model.cfg) quando cfg é um dict Python comum (ex.: em mocks de teste) falha com AttributeError: 'dict' object has no attribute '_get_node_flag'.
 - **Solução / Regra Obrigatória:** Usar OmegaConf.is_config(asr_model.cfg) antes de entrar no bloco open_dict(), mantendo o fallback para dict puro.
+
+### [DISC-010] Campo raw_transcription vs transcription no google/fleurs (datasets 4.8.5) (`data_prep` — `2026-10-24T18:11:03Z`)
+- **Problema / Armadilha:** No dataset google/fleurs (pt_br), o campo 'transcription' remove toda pontuação e converte tudo para minúsculas, violando a Spec 03 que exige preservação de case e pontuação (., ?, -, vírgula).
+- **Solução / Regra Obrigatória:** Configurar SUPPORTED_HF_DATASETS['fleurs_pt'] para ler 'raw_transcription' (que preserva maiúsculas e pontuação original) com fallback automático para 'transcription'.
+
+### [DISC-011] Automação Remota via Google Colab CLI (~/.local/bin/colab) e Adoção de Sessões (`colab_io` — `2026-10-24T18:11:03Z`)
+- **Problema / Armadilha:** Sessões iniciadas pelo navegador no Google Colab aparecem como '[?]' em 'colab sessions' por não estarem registradas localmente em ~/.config/colab-cli/sessions.json, e 'colab exec' exige código via stdin ou '-f <arquivo>'.
+- **Solução / Regra Obrigatória:** Usar '~/.local/bin/colab' autenticado via OAuth2 (~/.config/colab-cli/token.json). Para adotar sessão já montada no navegador com /content/drive, registrar SessionState via state.client.list_assignments() em /Users/gabriel.medeiros/.local/share/uv/tools/google-colab-cli/bin/python e enviar código via stdin ('cat << EOF | ~/.local/bin/colab exec -s parakeet --timeout 600').

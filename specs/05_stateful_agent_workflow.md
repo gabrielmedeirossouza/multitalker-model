@@ -85,3 +85,14 @@ Todo agente de IA ao iniciar uma sessão neste repositório **DEVE** seguir este
   2. `USER.md` existe na raiz do repositório e seu conteúdo está estritamente sincronizado com `render_user_markdown(state)`.
   3. `state/AGENT_KNOWLEDGE.md` existe e contém o registro estruturado de descobertas incrementais dos agentes.
   4. As transições de estado (`start_step`, `complete_step`, `add_blocker`, `resolve_blocker`, `log_discovery`) mantêm a consistência invariante do `PipelineState` e regeneram `USER.md`.
+
+---
+
+## 6. Operação Remota Autônoma via Google Colab CLI (`~/.local/bin/colab`)
+
+O ambiente local possui o `google-colab-cli` instalado em `~/.local/bin/colab` e autenticado via OAuth2 (`~/.config/colab-cli/token.json`). Agentes de IA podem alocar, inspecionar, executar código e trocar o tipo de runtime (`CPU High-RAM` $\leftrightarrow$ `GPU A100`) diretamente do terminal:
+
+- **Listar sessões e saldo de Compute Units:** `~/.local/bin/colab sessions` e `~/.local/bin/colab usage`
+- **Executar código Python remotamente (via stdin):** `cat << 'EOF' | ~/.local/bin/colab exec -s parakeet --timeout 600`
+- **Adotar uma sessão já aberta no navegador (`[?]`):** Se o usuário já montou o Google Drive (`/content/drive`) no navegador, o agente pode adotar o endpoint listado em `state.client.list_assignments()` salvando um `SessionState` em `~/.config/colab-cli/sessions.json` via `/Users/gabriel.medeiros/.local/share/uv/tools/google-colab-cli/bin/python`.
+- **Trocar tipo de runtime (de CPU High-RAM para GPU A100):** Encerrar a sessão CPU após concluir o `Step 04` (`~/.local/bin/colab stop -s parakeet`) e criar uma nova sessão com GPU A100 (`~/.local/bin/colab new -s parakeet --gpu A100 --high-mem`).
