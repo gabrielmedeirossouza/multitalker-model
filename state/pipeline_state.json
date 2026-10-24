@@ -1,8 +1,8 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-24T23:21:17Z",
-  "overall_status": "in_progress",
+  "updated_at": "2026-10-24T23:32:03Z",
+  "overall_status": "ready",
   "current_step_id": "step_01_data_prep_clean",
   "steps": [
     {
@@ -28,7 +28,7 @@
       "step_id": "step_01_data_prep_clean",
       "title": "Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD",
       "environment": "colab_cpu",
-      "status": "in_progress",
+      "status": "pending",
       "started_at": "2026-10-24T19:09:09Z",
       "completed_at": "2026-10-24T19:09:09Z",
       "last_command": "python -m src.data_prep --ensure_colab_dataset --dataset coraa_mupe --val_stride 4 --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr",
@@ -139,15 +139,6 @@
       "resolved_at": "2026-10-24T19:32:59Z"
     },
     {
-      "id": "blocker_colab_drive_auth",
-      "step_id": "step_05_colab_stage1_warmup",
-      "description": "Colab pediu interação humana (drive_auth) durante `bridge drive-mount`.",
-      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22T3z6zVGyZWh9jD5jlMblc9iKCpE%3A1792870382220%22%2C%22endpoint%22%3A%22gpu-a100-hm-ass1c0-pt7q1sy8w5bi%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
-      "created_at": "2026-10-24T19:33:02Z",
-      "resolved": true,
-      "resolved_at": "2026-10-24T19:42:45Z"
-    },
-    {
       "id": "blocker_step05_corpus_scale",
       "step_id": "step_05_colab_stage1_warmup",
       "description": "O warmup com FLEURS pt_br (8,9 h, 1.380 frases únicas) não aprende ancoragem acústica em nenhuma variante testada (val_wer >= 0,993; Spec 04 §8.5). Pipeline NeMo 3.0 corrigido e verificado em inglês (val_wer 0,21).",
@@ -155,6 +146,15 @@
       "created_at": "2026-10-24T21:21:08Z",
       "resolved": true,
       "resolved_at": "2026-10-24T23:21:10Z"
+    },
+    {
+      "id": "blocker_colab_drive_auth",
+      "step_id": "step_01_data_prep_clean",
+      "description": "Colab pediu interação humana (drive_auth) durante `bridge drive-mount`.",
+      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22yX_QwAZMIUngzjLo5PB1lJPOxXI%3A1792884119762%22%2C%22endpoint%22%3A%22m-hm-euw4b0-3d672n2pvrxh0%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
+      "created_at": "2026-10-24T23:22:00Z",
+      "resolved": true,
+      "resolved_at": "2026-10-24T23:24:22Z"
     }
   ],
   "agent_handover": {
@@ -356,6 +356,14 @@
       "title": "CORAA-MUPE-ASR como corpus da Fase 1; ID nilc-nlp/CORAA-ASR inexistente no Hub",
       "problem": "O ID nilc-nlp/CORAA-ASR responde 401 no Hugging Face. CORAA v1.1 (Racoci/CORAA-v1.1) e MLS são minúsculos e sem pontuação. O MUPE (nilc-nlp/CORAA-MUPE-ASR, 365 h, 42 GB parquet com WAV 16 kHz) tem original_text com caixa/pontuação, mas inclui anotações '(risos)', '(pausa)', '()' (~7% dos segmentos) e '<'/'>' marcando palavras truncadas na borda (~3,4%); speaker_type distingue entrevistado (R) e entrevistador (P/1).",
       "solution": "Usar --dataset coraa_mupe: HFDatasetSource com original_text, speaker_fields [speaker_code, speaker_type], audio_quality=high e strip_annotations (remove parênteses, descarta '<'/'>'). Download sempre em streaming (evita cache parquet + Arrow de ~84 GB). Artefatos por corpus em parakeet_ptbr/<dataset>/ e checkpoints em exp_<dataset>_warmup (Spec 01 §2-§3). datasets-server do HF limita /rows (HTTP 429) após ~35 requisições seguidas."
+    },
+    {
+      "id": "DISC-024",
+      "timestamp": "2026-10-24T23:32:03Z",
+      "category": "colab_io",
+      "title": "launch falha com timeout logo após exec com datasets em streaming; throughput do MUPE",
+      "problem": "Após um exec que iterou um IterableDataset do HF em streaming, o launch seguinte retornou timeout (exit 11) em 90 s sem criar o job: o kernel ainda estava ocupado com threads do streaming. Export do coraa_mupe numa VM CPU High-RAM (8 vCPU, 50 GB RAM, 226 GB disco) roda a ~62 amostras/s em 1 núcleo (~70 min para o train).",
+      "solution": "Após timeout de launch, conferir job-status (job_not_found = não iniciou) e repetir o launch uma vez: o guarda já interrompe o kernel. Evitar exec pesado com datasets em streaming no kernel; usar launch. Estimar Steps 01-04 do MUPE em ~1,5 h (export ~70 min + tokenizador + mixer + tar ~40 GB)."
     }
   ]
 }

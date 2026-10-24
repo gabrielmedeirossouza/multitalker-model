@@ -91,6 +91,7 @@ Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` execu
   9. `compute_max_steps()` aplica a fórmula da §8.4 e o `src/trainer.py` injeta `trainer.max_steps > 0` quando o YAML não o define.
   10. Na Fase 1, `freeze_speaker_kernels()` desabilita gradientes de `spk_kernels` e `bg_spk_kernels` (§5.5).
   11. `snapshot_vocab_independent_weights()` / `restore_vocab_independent_weights()` copiam somente a *allowlist* `joint.enc.*`, `joint.pred.*` e `decoder.prediction.dec_rnn.*`, nunca `embed`/`joint_net`, mesmo com shapes iguais (§5.6).
+  12. `align_max_steps_to_val_interval()` arredonda `max_steps` para o próximo múltiplo de um `val_check_interval` inteiro e não altera o valor com `val_check_interval: 1.0` (fim de época); com `check_val_every_n_epoch: null`, o YAML define `val_check_interval` inteiro `> 1` (§8.4).
 
 ---
 
@@ -125,7 +126,12 @@ Verificado na VM A100 com `nemo_toolkit==3.0.0` (PyPI) e o checkpoint `multitalk
   - O limite **precisa** ser um teto: se `max_steps` cortar a última época, a validação final não roda e `save_best_model` restaura um checkpoint anterior, descartando as últimas épocas. Assim o treino termina por `max_epochs`, e `max_steps` só define a curva do scheduler (LR final ≈ `min_lr`).
   - O CLI aceita `--max_steps` para sobrescrever (ex.: *smoke test*).
 - Fase 1 usa `warmup_ratio: 0.1` (proporcional a `max_steps`) em vez de `warmup_steps` fixo: com FLEURS (~2,6 mil amostras, `batch_size=32`) 5 épocas dariam ~410 passos, menos que `warmup_steps=1000`, e o LR nunca atingiria o pico.
-- Fase 1 com corpus pequeno: `max_epochs: 30` (~2,5 mil passos, ~4 it/s na A100 ≈ 11 min de treino) e `check_val_every_n_epoch: 5` (6 validações/checkpoints, limitando a escrita no Drive). Decoder/Joint são reinicializados aleatoriamente pela troca de vocabulário e precisam de milhares de passos; o encoder congelado torna cada passo barato e o top-k por `val_wer` com `save_best_model` protege contra *overfitting*.
+- Histórico (FLEURS, corpus pequeno): `max_epochs: 30` (~2,5 mil passos) e `check_val_every_n_epoch: 5`.
+- **Fase 1 com CORAA-MUPE (corpus grande, ~250 mil amostras ≈ 7,8 mil lotes/época):** validação **por passos**, porque uma época leva ~30 min e o critério de aborto (`val_wer ≥ 0,99` após ~1.500 passos, §8.5) precisa de sinal antes do fim da primeira época.
+  - `max_epochs: 3`, `val_check_interval: 4000` (inteiro = lotes de treino) e `check_val_every_n_epoch: null`.
+  - **Alinhamento obrigatório** (`align_max_steps_to_val_interval()`): com validação por passos, o `src/trainer.py` arredonda o `max_steps` calculado para cima até um múltiplo de `val_check_interval` e define `max_epochs: -1`, tornando `max_steps` o limite efetivo. Assim o último passo coincide com uma validação: o Lightning valida quando `(total_batch_idx + 1) % val_check_interval == 0`, e um treino encerrado por `max_epochs` fora desse múltiplo descartaria os passos após a última validação (`save_best_model` restaura o melhor checkpoint). O alinhamento assume `accumulate_grad_batches: 1` (passos do otimizador = lotes).
+  - Orçamento de Drive (§4): ~6 validações × (top-1 + `-last`) ≈ até ~30 GB na Lixeira no pior caso; esvaziar a Lixeira após a fase.
+  - Sinal precoce: na primeira época cada amostra é vista uma única vez, então `training_batch_wer` já mede generalização (com 1.380 frases do FLEURS ele refletia memorização).
 
 ### 8.5 Diagnóstico do Warmup v1 (Atalho de Modelo de Linguagem)
 Primeira execução real da Fase 1 (FLEURS pt_br: 8,9 h, 2.596 amostras, **1.380 frases únicas** ≈ 1,9 gravações/frase; frases de validação disjuntas), com Joint/Decoder totalmente reinicializados:

@@ -77,6 +77,17 @@ def compute_max_steps(
     return math.ceil(max_epochs * batches_per_epoch / accumulate_grad_batches)
 
 
+def align_max_steps_to_val_interval(max_steps: int, val_check_interval: Any) -> int:
+    """
+    Arredonda max_steps para o próximo múltiplo de um val_check_interval inteiro (validação por passos),
+    para que o último passo coincida com uma validação (Spec 04 §8.4). val_check_interval float
+    (ex.: 1.0 = fim de época) mantém max_steps inalterado.
+    """
+    if isinstance(val_check_interval, bool) or not isinstance(val_check_interval, int) or val_check_interval <= 1:
+        return max_steps
+    return math.ceil(max_steps / val_check_interval) * val_check_interval
+
+
 def freeze_speaker_kernels(asr_model: Any) -> int:
     """
     Congela spk_kernels e bg_spk_kernels do EncDecMultiTalkerRNNTBPEModel, que ficam fora de
@@ -354,6 +365,14 @@ def run_nemo_training(
                 accumulate_grad_batches=int(trainer_cfg.get("accumulate_grad_batches", 1)),
                 num_buckets=int(train_ds_cfg.get("num_buckets", 30)) if train_ds_cfg.get("use_bucketing") else 0,
             )
+            aligned_steps = align_max_steps_to_val_interval(
+                trainer_cfg["max_steps"], trainer_cfg.get("val_check_interval")
+            )
+            # Validação por passos (check_val_every_n_epoch: null explícito; ausente = 1 no Lightning):
+            # max_steps vira o limite efetivo e termina numa validação
+            if "check_val_every_n_epoch" in trainer_cfg and trainer_cfg["check_val_every_n_epoch"] is None:
+                trainer_cfg["max_steps"] = aligned_steps
+                trainer_cfg["max_epochs"] = -1
         print(
             f"[Spec 04 §8.4] trainer.max_steps={trainer_cfg['max_steps']} "
             f"(max_epochs={trainer_cfg.get('max_epochs')}, amostras={checked_train})."

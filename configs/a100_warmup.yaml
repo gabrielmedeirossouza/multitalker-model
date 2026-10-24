@@ -71,13 +71,15 @@ model:
 trainer:
   devices: 1
   accelerator: "gpu"
-  max_epochs: 30
+  # Spec 04 §8.4: CORAA-MUPE (~7,8 mil lotes/época) — validação por passos; o src/trainer.py alinha
+  # max_steps a um múltiplo de val_check_interval e usa max_epochs: -1 (max_steps vira o limite efetivo)
+  max_epochs: 3
   precision: "bf16-mixed"
   accumulate_grad_batches: 1
   gradient_clip_val: 1.0
   log_every_n_steps: 20
-  val_check_interval: 1.0
-  check_val_every_n_epoch: 5
+  val_check_interval: 4000
+  check_val_every_n_epoch: null
   enable_checkpointing: false
   logger: false
   use_distributed_sampler: false

@@ -27,6 +27,7 @@ from src.data_prep import (
 )
 from src.evaluator import compute_word_error_rate
 from src.trainer import (
+    align_max_steps_to_val_interval,
     apply_stage_optimizations_to_nemo_model,
     compute_max_steps,
     freeze_speaker_kernels,
@@ -185,9 +186,24 @@ def test_warmup_checkpointing_respects_drive_budget():
     ckpt = raw_cfg["exp_manager"]["checkpoint_callback_params"]
     assert ckpt["save_top_k"] == 1
     assert ckpt["always_save_nemo"] is False
-    assert raw_cfg["trainer"]["check_val_every_n_epoch"] >= 1
-    # A última época sempre é validada (max_epochs múltiplo de check_val_every_n_epoch)
-    assert raw_cfg["trainer"]["max_epochs"] % raw_cfg["trainer"]["check_val_every_n_epoch"] == 0
+    trainer_cfg = raw_cfg["trainer"]
+    if trainer_cfg["check_val_every_n_epoch"] is None:
+        # Validação por passos (corpus grande): intervalo inteiro de lotes, alinhado a max_steps no src/trainer.py
+        assert isinstance(trainer_cfg["val_check_interval"], int) and trainer_cfg["val_check_interval"] > 1
+        assert trainer_cfg["accumulate_grad_batches"] == 1
+    else:
+        # A última época sempre é validada (max_epochs múltiplo de check_val_every_n_epoch)
+        assert trainer_cfg["max_epochs"] % trainer_cfg["check_val_every_n_epoch"] == 0
+
+
+def test_align_max_steps_to_val_interval():
+    # MUPE: 3 épocas de ~7,8 mil lotes -> 23.448 passos -> próximo múltiplo de 4000 (termina numa validação)
+    assert align_max_steps_to_val_interval(23448, 4000) == 24000
+    assert align_max_steps_to_val_interval(24000, 4000) == 24000
+    # Validação no fim de época (float) ou intervalos degenerados não alteram max_steps
+    assert align_max_steps_to_val_interval(2700, 1.0) == 2700
+    assert align_max_steps_to_val_interval(2700, 1) == 2700
+    assert align_max_steps_to_val_interval(2700, True) == 2700
 
 
 def test_vocab_independent_weights_survive_change_vocabulary():

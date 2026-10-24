@@ -5,9 +5,9 @@
 ## 1. Resumo Executivo
 
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
-- **Status Geral:** 🔄 Em Execução por Agente
+- **Status Geral:** 🟢 Pronto para Iniciar / Continuar
 - **Etapa Atual:** `step_01_data_prep_clean` — Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD (`colab_cpu`)
-- **Última Atualização (UTC):** `2026-10-24T23:21:17Z`
+- **Última Atualização (UTC):** `2026-10-24T23:32:03Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
@@ -19,7 +19,7 @@
 | # | ID da Etapa | Ambiente | Status | Artefatos / Métricas |
 |---|---|---|---|---|
 | 0 | `step_00_audit_and_contracts` | `local_cpu` | ✅ Concluído | `contract_tests_passed=28`, specs: `specs/00..05_*.md`, schemas: `src/schemas.py`, state_file: `state/pipeline_state.json`, knowledge_base: `state/AGENT_KNOWLEDGE.md` |
-| 1 | `step_01_data_prep_clean` | `colab_cpu` | 🔄 Em Execução | clean_train_manifest: `/content/local_dataset/clean_train_manifest.json`, clean_val_manifest: `/content/local_dataset/clean_val_manifest.json` |
+| 1 | `step_01_data_prep_clean` | `colab_cpu` | ⏳ Pendente | clean_train_manifest: `/content/local_dataset/clean_train_manifest.json`, clean_val_manifest: `/content/local_dataset/clean_val_manifest.json` |
 | 2 | `step_02_tokenizer_ptbr` | `colab_cpu` | ✅ Concluído | tokenizer_dir: `/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024` |
 | 3 | `step_03_mixer_multitalker` | `colab_cpu` | ✅ Concluído | multitalker_train_manifest: `/content/local_dataset/multitalker_train_manifest.json`, multitalker_val_manifest: `/content/local_dataset/multitalker_val_manifest.json` |
 | 4 | `step_04_pack_and_upload_drive` | `colab_cpu` | ✅ Concluído | colab_bundle_tar_gz: `/content/drive/MyDrive/parakeet_ptbr/ptbr_dataset_16khz.tar.gz` |
