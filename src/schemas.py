@@ -153,9 +153,25 @@ class TrainingStageConfig(BaseModel):
     return_speaker_targets: bool = False
     speaker_kernel_enabled: bool = True
     att_context_size: Optional[List[List[int]]] = None
+    use_lhotse: bool = True
+    trainer_logger: bool = False
+    ckpt_every_n_train_steps: Optional[int] = None
+    ckpt_every_n_epochs: Optional[int] = None
 
     @model_validator(mode="after")
     def check_stage_invariants(self) -> "TrainingStageConfig":
+        if not self.use_lhotse:
+            raise ValueError(
+                "Spec 04 §8.2: use_lhotse DEVE ser True; EncDecMultiTalkerRNNTBPEModel só cria dataloader via Lhotse."
+            )
+        if self.trainer_logger:
+            raise ValueError(
+                "Spec 04 §8.3: trainer.logger DEVE ser False; o exp_manager do NeMo cria o logger TensorBoard."
+            )
+        if self.ckpt_every_n_train_steps and self.ckpt_every_n_epochs:
+            raise ValueError(
+                "Spec 04 §4: every_n_train_steps e every_n_epochs são mutuamente exclusivos no ModelCheckpoint."
+            )
         if self.stage == "warmup" and not self.freeze_encoder:
             raise ValueError(
                 "Spec 04: No estágio 'warmup', freeze_encoder DEVE ser True para evitar "

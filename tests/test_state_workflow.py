@@ -7,6 +7,7 @@ from src.state import (
     DEFAULT_STATE_PATH,
     DEFAULT_USER_MD_PATH,
     add_blocker,
+    build_parser,
     complete_step,
     create_initial_pipeline_state,
     fail_step,
@@ -158,3 +159,14 @@ def test_update_handover_fail_step_and_drive_mirror(tmp_path, monkeypatch):
         knowledge_path=new_local_know,
     ) is True
     assert new_local_state.exists() and new_local_user.exists()
+
+
+@pytest.mark.parametrize("subcommand", ["start-step", "fail-step"])
+def test_cli_cmd_option_does_not_shadow_subcommand(subcommand):
+    # Regressão: com dest="cmd" no subparser, "--cmd" sobrescrevia o subcomando e nenhuma ação era executada
+    argv = [subcommand, "--step", "step_05_colab_stage1_warmup", "--cmd", "python -m src.trainer --stage warmup"]
+    if subcommand == "fail-step":
+        argv += ["--error", "diagnóstico"]
+    args = build_parser().parse_args(argv)
+    assert args.subcommand == subcommand
+    assert args.cmd == "python -m src.trainer --stage warmup"

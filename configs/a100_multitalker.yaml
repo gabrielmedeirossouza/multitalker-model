@@ -23,8 +23,12 @@ model:
       enabled: true
       inject_layer_idx: 0
 
+  # Spec 04 §8.2: Lhotse obrigatório. PENDÊNCIA step_06: o LhotseSpeechToTextSpkBpeDataset ignora spk_targets do
+  # manifesto e deriva as máscaras das supervisions do Cut (uma por locutor) — o mixer (Spec 02) precisa emitir cuts Lhotse.
   train_ds:
+    use_lhotse: true
     manifest_filepath: "/content/local_dataset/multitalker_train_manifest.json"
+    text_field: "text"
     sample_rate: 16000
     batch_size: 16
     shuffle: true
@@ -33,16 +37,26 @@ model:
     min_duration: 0.5
     max_duration: 20.0
     use_bucketing: true
+    num_buckets: 8
     bucketing_strategy: "fully_randomized"
     return_speaker_targets: true
+    num_speakers: 4
+    num_sample_per_mel_frame: 160
+    num_mel_frame_per_asr_frame: 8
 
   validation_ds:
+    use_lhotse: true
     manifest_filepath: "/content/local_dataset/multitalker_val_manifest.json"
+    text_field: "text"
     sample_rate: 16000
     batch_size: 8
     shuffle: false
+    use_bucketing: false
     num_workers: 2
     return_speaker_targets: true
+    num_speakers: 4
+    num_sample_per_mel_frame: 160
+    num_mel_frame_per_asr_frame: 8
 
   joint:
     fuse_loss_wer: true
@@ -60,7 +74,8 @@ model:
     weight_decay: 1.0e-3
     sched:
       name: "CosineAnnealing"
-      warmup_steps: 2000
+      # Spec 04 §8.4: proporcional a trainer.max_steps (calculado pelo src/trainer.py a partir do manifesto)
+      warmup_ratio: 0.1
       min_lr: 5.0e-6
 
 trainer:
@@ -71,8 +86,11 @@ trainer:
   accumulate_grad_batches: 2
   gradient_clip_val: 1.0
   log_every_n_steps: 50
-  val_check_interval: 0.5
+  # Dataloader Lhotse não tem len(): o Lightning só aceita val_check_interval 1.0 ou int (lotes, com check_val_every_n_epoch: null)
+  val_check_interval: 1.0
   enable_checkpointing: false
+  logger: false
+  use_distributed_sampler: false
 
 exp_manager:
   exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker"
@@ -84,6 +102,7 @@ exp_manager:
   checkpoint_callback_params:
     monitor: "val_wer"
     mode: "min"
-    save_top_k: 3
-    always_save_nemo: true
-    every_n_train_steps: 1000
+    save_top_k: 1
+    # Spec 04 §4: cada .ckpt/.nemo tem ~2,5 GB e arquivos rotacionados vão para a Lixeira do Drive (consomem cota)
+    always_save_nemo: false
+    save_best_model: true

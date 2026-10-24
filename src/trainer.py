@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -31,6 +32,8 @@ def load_and_validate_stage_config(
     enc_cfg = raw_cfg.get("model", {}).get("encoder", {})
     spk_kernel_cfg = enc_cfg.get("speaker_kernel", {})
     train_ds_cfg = raw_cfg.get("model", {}).get("train_ds", {})
+    val_ds_cfg = raw_cfg.get("model", {}).get("validation_ds", {})
+    ckpt_cfg = raw_cfg["exp_manager"].get("checkpoint_callback_params", {})
 
     contract = TrainingStageConfig(
         stage=raw_cfg["stage"],
@@ -43,8 +46,106 @@ def load_and_validate_stage_config(
         return_speaker_targets=bool(train_ds_cfg.get("return_speaker_targets", False)),
         speaker_kernel_enabled=bool(spk_kernel_cfg.get("enabled", True)),
         att_context_size=enc_cfg.get("att_context_size"),
+        use_lhotse=bool(train_ds_cfg.get("use_lhotse", False)) and bool(val_ds_cfg.get("use_lhotse", False)),
+        trainer_logger=bool(raw_cfg["trainer"].get("logger", True)),
+        ckpt_every_n_train_steps=ckpt_cfg.get("every_n_train_steps"),
+        ckpt_every_n_epochs=ckpt_cfg.get("every_n_epochs"),
     )
     return raw_cfg, contract
+
+
+def compute_max_steps(
+    num_train_samples: int,
+    batch_size: int,
+    max_epochs: int,
+    accumulate_grad_batches: int = 1,
+    num_buckets: int = 0,
+) -> int:
+    """
+    Calcula o teto de trainer.max_steps (passos do otimizador) para o dataloader Lhotse, que não expõe len()
+    e impede o NeMo de derivar max_steps a partir de max_epochs. num_buckets soma a margem de lotes parciais
+    do bucketing, garantindo que o treino termine por max_epochs (Spec 04 §8.4).
+    """
+    if num_train_samples <= 0 or batch_size <= 0 or max_epochs <= 0 or accumulate_grad_batches <= 0:
+        raise ValueError(
+            "compute_max_steps exige num_train_samples, batch_size, max_epochs e accumulate_grad_batches > 0 "
+            f"(recebeu {num_train_samples}, {batch_size}, {max_epochs}, {accumulate_grad_batches})."
+        )
+    if num_buckets < 0:
+        raise ValueError(f"num_buckets não pode ser negativo (recebeu {num_buckets}).")
+    batches_per_epoch = math.ceil(num_train_samples / batch_size) + num_buckets
+    return math.ceil(max_epochs * batches_per_epoch / accumulate_grad_batches)
+
+
+def freeze_speaker_kernels(asr_model: Any) -> int:
+    """
+    Congela spk_kernels e bg_spk_kernels do EncDecMultiTalkerRNNTBPEModel, que ficam fora de
+    asr_model.encoder e não são afetados por encoder.freeze() (Spec 04 §5.5). Retorna o nº de tensores congelados.
+    """
+    frozen = 0
+    for attr in ("spk_kernels", "bg_spk_kernels"):
+        module = getattr(asr_model, attr, None)
+        if module is None:
+            continue
+        for param in module.parameters():
+            param.requires_grad = False
+            frozen += 1
+    return frozen
+
+
+VOCAB_INDEPENDENT_WEIGHT_PREFIXES = {
+    "joint": ("enc.", "pred."),
+    "decoder": ("prediction.dec_rnn.",),
+}
+
+
+def snapshot_vocab_independent_weights(asr_model: Any) -> Dict[str, Dict[str, Any]]:
+    """
+    Copia, antes de change_vocabulary(), os pesos pré-treinados do Joint/Decoder que não dependem dos IDs de token
+    (allowlist por prefixo; embed/joint_net têm o mesmo shape no vocabulário original de 1024 e não entram) (Spec 04 §5.6).
+    """
+    snapshot: Dict[str, Dict[str, Any]] = {}
+    for module_name, prefixes in VOCAB_INDEPENDENT_WEIGHT_PREFIXES.items():
+        module = getattr(asr_model, module_name)
+        snapshot[module_name] = {
+            name: tensor.detach().clone()
+            for name, tensor in module.state_dict().items()
+            if name.startswith(prefixes)
+        }
+    return snapshot
+
+
+def restore_vocab_independent_weights(asr_model: Any, snapshot: Dict[str, Dict[str, Any]]) -> int:
+    """Restaura no Joint/Decoder recriados por change_vocabulary() os pesos da allowlist. Retorna o nº de tensores."""
+    restored = 0
+    for module_name, weights in snapshot.items():
+        module = getattr(asr_model, module_name)
+        state = module.state_dict()
+        for name, tensor in weights.items():
+            if name in state and tuple(state[name].shape) == tuple(tensor.shape):
+                state[name] = tensor
+                restored += 1
+        module.load_state_dict(state)
+    return restored
+
+
+def rebuild_rnnt_loss_from_cfg(asr_model: Any) -> None:
+    """
+    Recria asr_model.loss a partir de asr_model.cfg.loss e cfg.rnnt_reduction. No NeMo 3.0, change_vocabulary()
+    instancia RNNTLoss(num_classes=...) padrão, descartando fastemit_lambda e a redução configurada (Spec 04 §5.3).
+    """
+    from nemo.collections.asr.losses.rnnt import RNNTLoss
+
+    loss_name, loss_kwargs = asr_model.extract_rnnt_loss_cfg(asr_model.cfg.get("loss", None))
+    asr_model.loss = RNNTLoss(
+        num_classes=asr_model.joint.num_classes_with_blank - 1,
+        loss_name=loss_name,
+        loss_kwargs=loss_kwargs,
+        reduction=asr_model.cfg.get("rnnt_reduction", "mean_batch"),
+    )
+    if asr_model.joint.fuse_loss_wer:
+        asr_model.joint.set_loss(asr_model.loss)
+    print(f"[Spec 04] RNNTLoss reconstruída: loss_name={loss_name}, kwargs={loss_kwargs}.")
 
 
 def resolve_nemo_checkpoint_path(configured_path: str) -> Path:
@@ -157,10 +258,23 @@ def apply_stage_optimizations_to_nemo_model(
                 asr_model.cfg["encoder"]["att_context_size"] = model_cfg["encoder"]["att_context_size"]
 
     if hasattr(asr_model, "joint") and "joint" in model_cfg:
-        if hasattr(asr_model.joint, "fuse_loss_wer"):
-            asr_model.joint.fuse_loss_wer = bool(model_cfg["joint"].get("fuse_loss_wer", True))
-        if hasattr(asr_model.joint, "fused_batch_size"):
-            asr_model.joint.fused_batch_size = int(model_cfg["joint"].get("fused_batch_size", 16))
+        joint = asr_model.joint
+        fuse_loss_wer = bool(model_cfg["joint"].get("fuse_loss_wer", True))
+        fused_batch_size = int(model_cfg["joint"].get("fused_batch_size", 16))
+        if hasattr(joint, "set_fuse_loss_wer"):
+            # NeMo 3.0: propriedades somente leitura; set_fuse_loss_wer() sobrescreve loss/WER fundidos (Spec 04 §5.2)
+            if joint.fuse_loss_wer != fuse_loss_wer:
+                joint.set_fuse_loss_wer(
+                    fuse_loss_wer,
+                    loss=getattr(asr_model, "loss", None) if fuse_loss_wer else None,
+                    metric=getattr(asr_model, "wer", None) if fuse_loss_wer else None,
+                )
+            joint.set_fused_batch_size(fused_batch_size)
+        else:
+            if hasattr(joint, "fuse_loss_wer"):
+                joint.fuse_loss_wer = fuse_loss_wer
+            if hasattr(joint, "fused_batch_size"):
+                joint.fused_batch_size = fused_batch_size
 
 
 def _mirror_state_into_checkpoint_dir(checkpoint_dir: str) -> None:
@@ -182,6 +296,7 @@ def run_nemo_training(
     tokenizer_dir: Optional[str] = None,
     init_model: Optional[str] = None,
     batch_size: Optional[int] = None,
+    max_steps: Optional[int] = None,
     config_path: Optional[str] = None,
     check_audio_files_exist: bool = True,
     update_state: bool = False,
@@ -226,6 +341,24 @@ def run_nemo_training(
             raw_cfg["model"]["train_ds"]["batch_size"] = batch_size
         raw_cfg["exp_manager"]["exp_dir"] = checkpoint_dir
 
+        # Spec 04 §8.4: Lhotse não expõe len() — max_steps explícito para o scheduler do NeMo
+        trainer_cfg = raw_cfg["trainer"]
+        train_ds_cfg = raw_cfg["model"]["train_ds"]
+        if max_steps:
+            trainer_cfg["max_steps"] = max_steps
+        elif int(trainer_cfg.get("max_steps", -1)) <= 0:
+            trainer_cfg["max_steps"] = compute_max_steps(
+                num_train_samples=checked_train,
+                batch_size=int(train_ds_cfg["batch_size"]),
+                max_epochs=int(trainer_cfg["max_epochs"]),
+                accumulate_grad_batches=int(trainer_cfg.get("accumulate_grad_batches", 1)),
+                num_buckets=int(train_ds_cfg.get("num_buckets", 30)) if train_ds_cfg.get("use_bucketing") else 0,
+            )
+        print(
+            f"[Spec 04 §8.4] trainer.max_steps={trainer_cfg['max_steps']} "
+            f"(max_epochs={trainer_cfg.get('max_epochs')}, amostras={checked_train})."
+        )
+
         if stage_contract.stage == "warmup" and check_audio_files_exist:
             tok_dir = Path(raw_cfg["model"]["tokenizer"]["dir"])
             if not tok_dir.exists():
@@ -248,13 +381,29 @@ def run_nemo_training(
                 raw_cfg["pretrained_model"],
                 map_location=trainer.strategy.root_device,
             )
+            reuse_weights = bool(raw_cfg.get("reuse_vocab_independent_weights", True))
+            snapshot = snapshot_vocab_independent_weights(asr_model) if reuse_weights else None
             asr_model.change_vocabulary(
                 new_tokenizer_dir=raw_cfg["model"]["tokenizer"]["dir"],
                 new_tokenizer_type=raw_cfg["model"]["tokenizer"]["type"],
             )
+            if snapshot is not None:
+                restored = restore_vocab_independent_weights(asr_model, snapshot)
+                print(
+                    f"[Spec 04 §5.6] {restored} tensores pré-treinados restaurados no Joint/Decoder "
+                    "(joint.enc, joint.pred, decoder LSTM); embed e joint_net reinicializados para o vocabulário PT-BR."
+                )
             apply_stage_optimizations_to_nemo_model(asr_model, raw_cfg, stage="warmup")
+            rebuild_rnnt_loss_from_cfg(asr_model)
             asr_model.encoder.freeze()
-            print("[Spec 04 - Warmup] FastConformer + Speaker Kernels CONGELADOS. Treinando Decoder RNN-T + Joint.")
+            frozen_kernel_tensors = freeze_speaker_kernels(asr_model)
+            trainable = sum(p.numel() for p in asr_model.parameters() if p.requires_grad)
+            total = sum(p.numel() for p in asr_model.parameters())
+            print(
+                "[Spec 04 - Warmup] FastConformer + Speaker Kernels CONGELADOS "
+                f"({frozen_kernel_tensors} tensores de kernel). Treinando Decoder RNN-T + Joint: "
+                f"{trainable:,} de {total:,} parâmetros ({100.0 * trainable / total:.1f}%)."
+            )
         else:
             nemo_path = resolve_nemo_checkpoint_path(raw_cfg["init_from_nemo_model"])
             asr_model = nemo_asr.models.ASRModel.restore_from(
@@ -262,6 +411,7 @@ def run_nemo_training(
                 map_location=trainer.strategy.root_device,
             )
             apply_stage_optimizations_to_nemo_model(asr_model, raw_cfg, stage="multitalker")
+            rebuild_rnnt_loss_from_cfg(asr_model)
             asr_model.encoder.unfreeze()
             print("[Spec 04 - Multitalker] Modelo completo DESCONGELADO com Speaker Kernels e Cache-Aware ativos.")
 
@@ -317,6 +467,12 @@ def main() -> None:
     parser.add_argument("--tokenizer_dir", default=None, help="Diretório contendo o tokenizador BPE PT-BR (1024).")
     parser.add_argument("--init_model", default=None, help="Caminho opcional do .nemo para iniciar Fase 2 ou avaliar em eval.")
     parser.add_argument("--batch_size", type=int, default=None, help="Sobrescreve o batch_size padrão.")
+    parser.add_argument(
+        "--max_steps",
+        type=int,
+        default=None,
+        help="Sobrescreve trainer.max_steps (padrão: calculado a partir do manifesto e max_epochs, Spec 04 §8.4).",
+    )
     parser.add_argument("--config", default=None, help="Caminho opcional para YAML customizado.")
     parser.add_argument(
         "--skip_audio_file_check",
@@ -351,6 +507,7 @@ def main() -> None:
         tokenizer_dir=args.tokenizer_dir,
         init_model=args.init_model,
         batch_size=args.batch_size,
+        max_steps=args.max_steps,
         config_path=args.config,
         check_audio_files_exist=not args.skip_audio_file_check,
         update_state=args.update_state,

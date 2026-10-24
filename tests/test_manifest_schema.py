@@ -17,9 +17,13 @@ from src.data_prep import ensure_colab_dataset_ready, pack_dataset_for_colab_ssd
 from src.evaluator import compute_word_error_rate
 from src.trainer import (
     apply_stage_optimizations_to_nemo_model,
+    compute_max_steps,
+    freeze_speaker_kernels,
     load_and_validate_stage_config,
     preflight_validate_manifest,
     resolve_nemo_checkpoint_path,
+    restore_vocab_independent_weights,
+    snapshot_vocab_independent_weights,
 )
 
 
@@ -116,6 +120,137 @@ def test_rejects_unfrozen_encoder_in_warmup():
         TrainingStageConfig(stage="warmup", freeze_encoder=False)
 
 
+@pytest.mark.parametrize("stage", ["warmup", "multitalker"])
+def test_yaml_configs_comply_with_nemo3_lhotse_integration(stage: str):
+    raw_cfg, contract = load_and_validate_stage_config(stage)
+    assert contract.use_lhotse is True
+    assert contract.trainer_logger is False
+    assert raw_cfg["model"]["validation_ds"]["use_lhotse"] is True
+    assert raw_cfg["model"]["train_ds"]["text_field"] == "text"
+    assert raw_cfg["trainer"]["use_distributed_sampler"] is False
+    assert raw_cfg["trainer"]["enable_checkpointing"] is False
+    assert raw_cfg["exp_manager"]["checkpoint_callback_params"]["save_best_model"] is True
+
+
+def test_warmup_lr_schedule_scales_with_max_steps():
+    raw_cfg, contract = load_and_validate_stage_config("warmup")
+    sched = raw_cfg["model"]["optim"]["sched"]
+    assert "warmup_steps" not in sched
+    assert 0.0 < sched["warmup_ratio"] < 1.0
+    # Épocas curtas: checkpoint a cada validação (sem gatilho por passos)
+    assert contract.ckpt_every_n_train_steps is None
+
+
+@pytest.mark.parametrize(
+    "kwargs, match",
+    [
+        ({"use_lhotse": False}, "use_lhotse DEVE ser True"),
+        ({"trainer_logger": True}, "trainer.logger DEVE ser False"),
+        ({"ckpt_every_n_train_steps": 1000, "ckpt_every_n_epochs": 1}, "mutuamente exclusivos"),
+    ],
+)
+def test_rejects_nemo3_misconfigurations(kwargs, match):
+    with pytest.raises(ValidationError, match=match):
+        TrainingStageConfig(stage="warmup", freeze_encoder=True, **kwargs)
+
+
+def test_compute_max_steps_formula():
+    # Sem bucketing: FLEURS pt_br 2596 amostras, batch 32 -> 82 lotes/época; 30 épocas -> 2460 passos
+    assert compute_max_steps(num_train_samples=2596, batch_size=32, max_epochs=30) == 2460
+    # Com 8 buckets Lhotse: teto de 82 + 8 = 90 lotes/época (medido na A100: 84) -> 2700 passos
+    steps = compute_max_steps(num_train_samples=2596, batch_size=32, max_epochs=30, num_buckets=8)
+    assert steps == 2700
+    assert steps >= 30 * 84  # max_steps nunca corta a última época (e sua validação)
+    # accumulate_grad_batches divide o número de passos do otimizador (arredonda para cima)
+    assert compute_max_steps(num_train_samples=100, batch_size=16, max_epochs=3, accumulate_grad_batches=2) == 11
+    with pytest.raises(ValueError):
+        compute_max_steps(num_train_samples=0, batch_size=32, max_epochs=5)
+    with pytest.raises(ValueError):
+        compute_max_steps(num_train_samples=10, batch_size=2, max_epochs=1, num_buckets=-1)
+
+
+def test_warmup_checkpointing_respects_drive_budget():
+    raw_cfg, _ = load_and_validate_stage_config("warmup")
+    ckpt = raw_cfg["exp_manager"]["checkpoint_callback_params"]
+    assert ckpt["save_top_k"] == 1
+    assert ckpt["always_save_nemo"] is False
+    assert raw_cfg["trainer"]["check_val_every_n_epoch"] >= 1
+    # A última época sempre é validada (max_epochs múltiplo de check_val_every_n_epoch)
+    assert raw_cfg["trainer"]["max_epochs"] % raw_cfg["trainer"]["check_val_every_n_epoch"] == 0
+
+
+def test_vocab_independent_weights_survive_change_vocabulary():
+    class FakeTensor:
+        def __init__(self, tag, shape):
+            self.tag, self.shape = tag, shape
+
+        def detach(self):
+            return self
+
+        def clone(self):
+            return FakeTensor(self.tag, self.shape)
+
+    class FakeModule:
+        def __init__(self, tag, names):
+            self._sd = {n: FakeTensor(tag, (1025, 640)) for n in names}
+
+        def state_dict(self):
+            return dict(self._sd)
+
+        def load_state_dict(self, sd):
+            self._sd = dict(sd)
+
+    joint_names = ["enc.weight", "enc.bias", "pred.weight", "pred.bias", "joint_net.2.weight", "joint_net.2.bias"]
+    dec_names = ["prediction.embed.weight", "prediction.dec_rnn.lstm.weight_ih_l0", "prediction.dec_rnn.lstm.bias_hh_l1"]
+
+    class FakeModel:
+        joint = FakeModule("pretrained", joint_names)
+        decoder = FakeModule("pretrained", dec_names)
+
+    model = FakeModel()
+    snapshot = snapshot_vocab_independent_weights(model)
+    # change_vocabulary() recria Joint/Decoder com pesos aleatórios (mesmos shapes: vocabulário original também é 1024)
+    model.joint, model.decoder = FakeModule("random", joint_names), FakeModule("random", dec_names)
+    assert restore_vocab_independent_weights(model, snapshot) == 6
+
+    joint_sd, dec_sd = model.joint.state_dict(), model.decoder.state_dict()
+    for name in ("enc.weight", "enc.bias", "pred.weight", "pred.bias"):
+        assert joint_sd[name].tag == "pretrained"
+    for name in ("prediction.dec_rnn.lstm.weight_ih_l0", "prediction.dec_rnn.lstm.bias_hh_l1"):
+        assert dec_sd[name].tag == "pretrained"
+    # Camadas dependentes dos IDs de token nunca são copiadas, mesmo com shape idêntico
+    assert joint_sd["joint_net.2.weight"].tag == "random"
+    assert dec_sd["prediction.embed.weight"].tag == "random"
+
+
+def test_warmup_config_reuses_vocab_independent_weights():
+    raw_cfg, _ = load_and_validate_stage_config("warmup")
+    assert raw_cfg["reuse_vocab_independent_weights"] is True
+
+
+def test_freeze_speaker_kernels_disables_gradients():
+    class DummyParam:
+        requires_grad = True
+
+    class DummyModule:
+        def __init__(self, n):
+            self._params = [DummyParam() for _ in range(n)]
+
+        def parameters(self):
+            return iter(self._params)
+
+    class DummyModel:
+        spk_kernels = DummyModule(4)
+        bg_spk_kernels = DummyModule(4)
+
+    model = DummyModel()
+    assert freeze_speaker_kernels(model) == 8
+    assert not any(p.requires_grad for p in model.spk_kernels.parameters())
+    assert not any(p.requires_grad for p in model.bg_spk_kernels.parameters())
+    # Modelos sem Speaker Kernels são aceitos sem erro
+    assert freeze_speaker_kernels(object()) == 0
+
+
 def test_rewrite_manifest_audio_paths_and_preflight_check(tmp_path):
     wav_dir = tmp_path / "wavs"
     wav_dir.mkdir(parents=True)
@@ -181,6 +316,39 @@ def test_apply_stage_optimizations_and_resolve_nemo_checkpoint(tmp_path):
     assert dummy.joint.fused_batch_size == 16
     assert dummy.cfg["loss"]["loss_name"] == "warprnnt_numba"
     assert dummy.cfg["encoder"]["att_context_size"] == REQUIRED_ATT_CONTEXT_SIZE
+
+    # NeMo 3.0: RNNTJoint expõe fuse_loss_wer/fused_batch_size como propriedades somente leitura + setters
+    class Nemo3Joint:
+        def __init__(self, fuse):
+            self._fuse_loss_wer, self._fused_batch_size = fuse, 4
+            self._loss = self._wer = "fused"
+
+        @property
+        def fuse_loss_wer(self):
+            return self._fuse_loss_wer
+
+        @property
+        def fused_batch_size(self):
+            return self._fused_batch_size
+
+        def set_fuse_loss_wer(self, fuse_loss_wer, loss=None, metric=None):
+            self._fuse_loss_wer, self._loss, self._wer = fuse_loss_wer, loss, metric
+
+        def set_fused_batch_size(self, fused_batch_size):
+            self._fused_batch_size = fused_batch_size
+
+    nemo3 = DummyModel()
+    nemo3.joint = Nemo3Joint(fuse=True)
+    apply_stage_optimizations_to_nemo_model(nemo3, raw_cfg, stage="multitalker")
+    assert nemo3.joint.fused_batch_size == 16
+    assert nemo3.joint._loss == "fused"  # valor inalterado não religa (nem zera) a perda fundida
+
+    nemo3_off = DummyModel()
+    nemo3_off.loss, nemo3_off.wer = "rnnt_loss", "wer_metric"
+    nemo3_off.joint = Nemo3Joint(fuse=False)
+    apply_stage_optimizations_to_nemo_model(nemo3_off, raw_cfg, stage="multitalker")
+    assert nemo3_off.joint.fuse_loss_wer is True
+    assert (nemo3_off.joint._loss, nemo3_off.joint._wer) == ("rnnt_loss", "wer_metric")
 
     # Testa busca recursiva em subpastas de timestamp do exp_manager
     ts_dir = tmp_path / "exp_v1_warmup" / "parakeet_ptbr_warmup" / "2026-10-24_12-00-00" / "checkpoints"

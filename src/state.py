@@ -622,9 +622,10 @@ def _parse_kv_pairs(pairs: Optional[List[str]]) -> Dict[str, str]:
     return result
 
 
-def main() -> None:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="CLI Stateful para Handover de Agentes e USER.md (Spec 05).")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    # dest distinto de "--cmd" (opção de start-step/fail-step), senão o valor de --cmd sobrescreve o subcomando
+    sub = parser.add_subparsers(dest="subcommand", required=True)
 
     sub.add_parser("init", help="Inicializa state/pipeline_state.json e USER.md se não existirem.")
     sub.add_parser("status", help="Exibe o resumo do estado atual e instruções para o agente.")
@@ -679,14 +680,17 @@ def main() -> None:
     p_disc.add_argument("--title", required=True)
     p_disc.add_argument("--problem", required=True)
     p_disc.add_argument("--solution", required=True)
+    return parser
 
-    args = parser.parse_args()
 
-    if args.cmd == "init":
+def main() -> None:
+    args = build_parser().parse_args()
+
+    if args.subcommand == "init":
         state = create_initial_pipeline_state()
         save_pipeline_state(state)
         print("[Spec 05] Estado inicial e USER.md criados com sucesso.")
-    elif args.cmd == "status":
+    elif args.subcommand == "status":
         state = load_pipeline_state()
         print(
             json.dumps(
@@ -701,21 +705,21 @@ def main() -> None:
                 ensure_ascii=False,
             )
         )
-    elif args.cmd == "render-user-md":
+    elif args.subcommand == "render-user-md":
         state = load_pipeline_state()
         save_pipeline_state(state)
         print("[Spec 05] USER.md sincronizado com sucesso.")
-    elif args.cmd == "verify":
+    elif args.subcommand == "verify":
         verify_state_files()
         print("[Spec 05] Verificação concluída: pipeline_state.json, USER.md e AGENT_KNOWLEDGE.md estão íntegros e sincronizados.")
-    elif args.cmd == "sync-from-drive":
+    elif args.subcommand == "sync-from-drive":
         d_dir = Path(args.drive_state_dir) if args.drive_state_dir else None
         ok = sync_state_from_drive(drive_state_dir=d_dir)
         print(f"[Spec 05] Sincronização a partir do Google Drive: {'restaurado' if ok else 'nenhum estado prévio no Drive'}.")
-    elif args.cmd == "start-step":
+    elif args.subcommand == "start-step":
         start_step(step_id=args.step, command=args.cmd, notes=args.note)
         print(f"[Spec 05] Etapa '{args.step}' marcada como 'in_progress' e USER.md atualizado.")
-    elif args.cmd == "fail-step":
+    elif args.subcommand == "fail-step":
         fail_step(
             step_id=args.step,
             error_message=args.error,
@@ -723,7 +727,7 @@ def main() -> None:
             next_action=args.next_action,
         )
         print(f"[Spec 05] Etapa '{args.step}' marcada como 'failed' e USER.md atualizado.")
-    elif args.cmd == "complete-step":
+    elif args.subcommand == "complete-step":
         complete_step(
             step_id=args.step,
             next_step_id=args.next_step,
@@ -735,7 +739,7 @@ def main() -> None:
             notes=args.note,
         )
         print(f"[Spec 05] Etapa '{args.step}' concluída e USER.md atualizado.")
-    elif args.cmd == "update-handover":
+    elif args.subcommand == "update-handover":
         update_handover(
             step_id=args.step,
             next_action=args.next_action,
@@ -746,7 +750,7 @@ def main() -> None:
             notes=args.note,
         )
         print(f"[Spec 05] Handover parcial de '{args.step}' atualizado (status=in_progress) e USER.md sincronizado.")
-    elif args.cmd == "add-blocker":
+    elif args.subcommand == "add-blocker":
         add_blocker(
             blocker_id=args.id,
             step_id=args.step,
@@ -754,10 +758,10 @@ def main() -> None:
             user_action_required=args.action,
         )
         print(f"[Spec 05] Bloqueio '{args.id}' registrado e destacado em USER.md.")
-    elif args.cmd == "resolve-blocker":
+    elif args.subcommand == "resolve-blocker":
         resolve_blocker(blocker_id=args.id)
         print(f"[Spec 05] Bloqueio '{args.id}' resolvido e USER.md atualizado.")
-    elif args.cmd == "log-discovery":
+    elif args.subcommand == "log-discovery":
         log_discovery(
             category=args.category,
             title=args.title,
