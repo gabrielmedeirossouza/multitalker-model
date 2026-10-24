@@ -1,7 +1,7 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-24T18:11:03Z",
+  "updated_at": "2026-10-24T18:27:08Z",
   "overall_status": "ready",
   "current_step_id": "step_01_data_prep_clean",
   "steps": [
@@ -219,6 +219,14 @@
       "title": "Automação Remota via Google Colab CLI (~/.local/bin/colab) e Adoção de Sessões",
       "problem": "Sessões iniciadas pelo navegador no Google Colab aparecem como '[?]' em 'colab sessions' por não estarem registradas localmente em ~/.config/colab-cli/sessions.json, e 'colab exec' exige código via stdin ou '-f <arquivo>'.",
       "solution": "Usar '~/.local/bin/colab' autenticado via OAuth2 (~/.config/colab-cli/token.json). Para adotar sessão já montada no navegador com /content/drive, registrar SessionState via state.client.list_assignments() em /Users/gabriel.medeiros/.local/share/uv/tools/google-colab-cli/bin/python e enviar código via stdin ('cat << EOF | ~/.local/bin/colab exec -s parakeet --timeout 600')."
+    },
+    {
+      "id": "DISC-012",
+      "timestamp": "2026-10-24T18:27:08Z",
+      "category": "tokenizer",
+      "title": "Remoção de split_by_punctuation no SentencePieceTrainer (sentencepiece 0.2.2)",
+      "problem": "O parser de TrainerSpec do sentencepiece 0.2.2 lança 'RuntimeError: NOT_FOUND: unknown field name split_by_punctuation in TrainerSpec'.",
+      "solution": "Remover o argumento 'split_by_punctuation=True' de spm.SentencePieceTrainer.train(...) em src/tokenizer.py, mantendo user_defined_symbols para pontuação sem vírgula e required_chars para a vírgula."
     }
   ]
 }

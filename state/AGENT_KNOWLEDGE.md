@@ -68,3 +68,7 @@
 ### [DISC-011] Automação Remota via Google Colab CLI (~/.local/bin/colab) e Adoção de Sessões (`colab_io` — `2026-10-24T18:11:03Z`)
 - **Problema / Armadilha:** Sessões iniciadas pelo navegador no Google Colab aparecem como '[?]' em 'colab sessions' por não estarem registradas localmente em ~/.config/colab-cli/sessions.json, e 'colab exec' exige código via stdin ou '-f <arquivo>'.
 - **Solução / Regra Obrigatória:** Usar '~/.local/bin/colab' autenticado via OAuth2 (~/.config/colab-cli/token.json). Para adotar sessão já montada no navegador com /content/drive, registrar SessionState via state.client.list_assignments() em /Users/gabriel.medeiros/.local/share/uv/tools/google-colab-cli/bin/python e enviar código via stdin ('cat << EOF | ~/.local/bin/colab exec -s parakeet --timeout 600').
+
+### [DISC-012] Remoção de split_by_punctuation no SentencePieceTrainer (sentencepiece 0.2.2) (`tokenizer` — `2026-10-24T18:27:08Z`)
+- **Problema / Armadilha:** O parser de TrainerSpec do sentencepiece 0.2.2 lança 'RuntimeError: NOT_FOUND: unknown field name split_by_punctuation in TrainerSpec'.
+- **Solução / Regra Obrigatória:** Remover o argumento 'split_by_punctuation=True' de spm.SentencePieceTrainer.train(...) em src/tokenizer.py, mantendo user_defined_symbols para pontuação sem vírgula e required_chars para a vírgula.

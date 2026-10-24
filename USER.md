@@ -7,7 +7,7 @@
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
 - **Status Geral:** 🟢 Pronto para Iniciar / Continuar
 - **Etapa Atual:** `step_01_data_prep_clean` — Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD (`colab_cpu`)
-- **Última Atualização (UTC):** `2026-10-24T18:11:03Z`
+- **Última Atualização (UTC):** `2026-10-24T18:27:08Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 

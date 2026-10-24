@@ -124,7 +124,6 @@ def train_sentencepiece_bpe_ptbr(
         normalization_rule_name="identity" if cfg.preserve_case_and_punctuation else "nmt_nfkc_cf",
         required_chars=required_chars,
         user_defined_symbols=non_comma_punct,
-        split_by_punctuation=True,
         unk_id=0,
         bos_id=-1,
         eos_id=-1,
