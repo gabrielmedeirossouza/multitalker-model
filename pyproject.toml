@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multitalker-model"
+version = "0.1.0"
+description = "Spec-Driven Development (SDD) pipeline to adapt nvidia/multitalker-parakeet-streaming-0.6b-v1 to Brazilian Portuguese (PT-BR) on Google Colab A100"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "numpy>=1.24.0",
+    "soundfile>=0.12.1",
+    "pyyaml>=6.0",
+    "sentencepiece>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+]
+colab = [
+    "datasets>=2.18.0",
+    "sentencepiece>=0.2.0",
+    "nemo_toolkit[asr]>=2.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-v --tb=short"

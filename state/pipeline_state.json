@@ -1,0 +1,182 @@
+{
+  "project_name": "parakeet-ptbr-multitalker",
+  "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
+  "updated_at": "2026-10-24T17:24:47Z",
+  "overall_status": "ready",
+  "current_step_id": "step_01_data_prep_clean",
+  "steps": [
+    {
+      "step_id": "step_00_audit_and_contracts",
+      "title": "Auditoria SDD, Specs (00-05), Contratos Pydantic e Gatekeeper CPU (< 0.3 GB local)",
+      "environment": "local_cpu",
+      "status": "completed",
+      "started_at": "2026-10-24T17:24:47Z",
+      "completed_at": "2026-10-24T17:24:47Z",
+      "last_command": ".venv/bin/pytest tests/ -v",
+      "artifacts": {
+        "specs": "specs/00..05_*.md",
+        "schemas": "src/schemas.py",
+        "state_file": "state/pipeline_state.json",
+        "knowledge_base": "state/AGENT_KNOWLEDGE.md"
+      },
+      "metrics": {
+        "contract_tests_passed": 28
+      },
+      "notes": "Repositório auditado (incluindo LLM-as-a-Judge); fluxo 100% Colab+Drive sem download de áudio local."
+    },
+    {
+      "step_id": "step_01_data_prep_clean",
+      "title": "Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD",
+      "environment": "colab_cpu",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    },
+    {
+      "step_id": "step_02_tokenizer_ptbr",
+      "title": "Treinamento e Validação do Tokenizador SentencePiece BPE PT-BR (1.024 tokens) no Colab/Drive",
+      "environment": "colab_cpu",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    },
+    {
+      "step_id": "step_03_mixer_multitalker",
+      "title": "Geração no Colab SSD do Dataset Sintético Sobreposto (70% Multitalker + 30% Limpo, 80ms)",
+      "environment": "colab_cpu",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    },
+    {
+      "step_id": "step_04_pack_and_upload_drive",
+      "title": "Empacotamento de /content/local_dataset em ptbr_dataset_16khz.tar.gz no Google Drive",
+      "environment": "colab_cpu",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    },
+    {
+      "step_id": "step_05_colab_stage1_warmup",
+      "title": "Treinamento Fase 1 (Warm-up: Encoder Congelado, Decoder/Joint PT-BR) na GPU A100",
+      "environment": "colab_a100",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    },
+    {
+      "step_id": "step_06_colab_stage2_multitalker",
+      "title": "Treinamento Fase 2 (Multitalker Cache-Aware + Speaker Kernels) na GPU A100",
+      "environment": "colab_a100",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    },
+    {
+      "step_id": "step_07_eval_and_export",
+      "title": "Avaliação Final (WER Limpo e Sobreposto) e Exportação do Checkpoint .nemo",
+      "environment": "colab_a100",
+      "status": "pending",
+      "started_at": null,
+      "completed_at": null,
+      "last_command": null,
+      "artifacts": {},
+      "metrics": {},
+      "notes": null
+    }
+  ],
+  "blockers": [],
+  "agent_handover": {
+    "last_agent_summary": "Auditoria completa e configuração 100% Colab+Drive concluídas (step_00). Zero GB de áudio será baixado no Mac local; Steps 01 a 04 rodam direto na VM do Colab via --ensure_colab_dataset.",
+    "next_agent_action": "No Google Colab (Célula 3 do colab_runner.ipynb), executar --ensure_colab_dataset para baixar/normalizar em /content/local_dataset, treinar o tokenizador, gerar misturas 70/30 e salvar o .tar.gz no Google Drive.",
+    "next_exact_command": "python -m src.data_prep --ensure_colab_dataset --dataset fleurs_pt --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr --update_state",
+    "critical_warnings": [
+      "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
+      "No ambiente local (Mac), use sempre os binários `.venv/bin/python` e `.venv/bin/pytest`.",
+      "Mantenha `max_duration <= 20.0` segundos para evitar descarte ou OOM na Joint Network 4D na A100.",
+      "Nunca passe vírgula em string separada por vírgulas para `user_defined_symbols` do SentencePiece."
+    ]
+  },
+  "discoveries": [
+    {
+      "id": "DISC-001",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "ambiente",
+      "title": "Binários isolados em .venv/bin",
+      "problem": "Executar 'pytest' ou 'python' diretamente no shell falha com 'command not found: pytest' ou usa o Python do sistema sem pydantic/soundfile.",
+      "solution": "Sempre invocar '.venv/bin/pytest' e '.venv/bin/python' em qualquer execução local."
+    },
+    {
+      "id": "DISC-002",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "tokenizer_sentencepiece",
+      "title": "Colisão de delimitador vírgula e caracteres de frequência zero no SentencePiece",
+      "problem": "1) Passar ',' em string separada por vírgulas para user_defined_symbols quebra o parser C++. 2) required_chars não inclui caracteres com 0 ocorrências no corpus (ex.: 'ü'), quebrando a validação da Spec 03.",
+      "solution": "extract_corpus_from_manifests() e train_sentencepiece_bpe_ptbr() garantem semente com todos os caracteres de build_required_ptbr_charset() no corpus e passam user_defined_symbols como lista sem ','."
+    },
+    {
+      "id": "DISC-003",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "mixer_acustico",
+      "title": "Estouro de duração máxima, locutores idênticos e erro IEEE-754 em ceil(duration / 0.08)",
+      "problem": "1) Divisões exatas como 0.56 / 0.08 geram 7.000000000000001 em IEEE-754, fazendo math.ceil retornar 8. 2) Misturas podiam repetir speaker_id ou ultrapassar 20s/30s.",
+      "solution": "Usar expected_frames_for_duration() com round(..., 6), sortear locutores distintos (_sample_distinct_speaker_pair), limitar a max_duration_sec (20.0s) e aplicar clean_ratio=0.30."
+    },
+    {
+      "id": "DISC-004",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "nemo_trainer",
+      "title": "Injeção explícita de otimizações A100 e resolução de subpastas de timestamp do exp_manager",
+      "problem": "1) from_pretrained/restore_from não aplicava joint.fused_batch_size, warprnnt_numba e att_context_size do YAML. 2) exp_manager salva .nemo em subpastas com timestamp (YYYY-MM-DD_HH-MM-SS).",
+      "solution": "apply_stage_optimizations_to_nemo_model() injeta as chaves no asr_model.cfg e resolve_nemo_checkpoint_path() busca recursivamente o .nemo mais recente."
+    },
+    {
+      "id": "DISC-005",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "fluxo_dados_colab",
+      "title": "Separação entre caminhos locais e reescrita /content/local_dataset",
+      "problem": "Gravar caminhos remotos antes da mixagem sem fallback local causava FileNotFoundError.",
+      "solution": "O mixer possui _resolve_local_audio_path() e data_prep possui --ensure_colab_dataset para operar diretamente em /content/local_dataset na VM do Colab."
+    },
+    {
+      "id": "DISC-006",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "continuidade_stateful",
+      "title": "Retomada idempotente (resume=True), handover parcial (train+val) e espelhamento no Google Drive",
+      "problem": "Sessões interrompidas no meio da exportação/mixagem ou quedas de VM no Colab perdiam o progresso ou marcavam a etapa como concluída antes de gerar o split de validação.",
+      "solution": "data_prep.py e mixer.py operam com resume=True, usam update_handover() até que train e val existam, e state.py espelha automaticamente pipeline_state.json e USER.md no Google Drive."
+    },
+    {
+      "id": "DISC-007",
+      "timestamp": "2026-10-24T17:24:47Z",
+      "category": "armazenamento_local",
+      "title": "Zero download de áudio no Mac local (100% Colab SSD + Google Drive)",
+      "problem": "O SSD local da máquina possui ~48 GiB livres. Baixar e mixar centenas de horas de áudio localmente consumiria espaço desnecessário e exigiria upload lento para o Google Drive.",
+      "solution": "As etapas 01 a 04 (download, tokenizador, mixagem 70/30 e empacotamento .tar.gz) rodam diretamente no Colab via 'python -m src.data_prep --ensure_colab_dataset', mantendo o consumo no Mac local abaixo de 0,3 GB."
+    }
+  ]
+}

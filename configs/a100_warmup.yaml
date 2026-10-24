@@ -1,0 +1,79 @@
+# Configuração Hydra/NeMo — Fase 1: Warm-up (Encoder Congelado) na GPU NVIDIA A100
+name: "parakeet_ptbr_multitalker_warmup"
+
+stage: "warmup"
+pretrained_model: "nvidia/multitalker-parakeet-streaming-0.6b-v1"
+freeze_encoder: true
+
+model:
+  sample_rate: 16000
+  tokenizer:
+    dir: "/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024"
+    type: "bpe"
+    vocab_size: 1024
+
+  train_ds:
+    manifest_filepath: "/content/local_dataset/clean_train_manifest.json"
+    sample_rate: 16000
+    batch_size: 32
+    shuffle: true
+    num_workers: 4
+    pin_memory: true
+    min_duration: 0.5
+    max_duration: 20.0
+    use_bucketing: true
+    bucketing_strategy: "fully_randomized"
+    bucketing_batch_size: null
+    return_speaker_targets: true
+
+  validation_ds:
+    manifest_filepath: "/content/local_dataset/clean_val_manifest.json"
+    sample_rate: 16000
+    batch_size: 16
+    shuffle: false
+    num_workers: 2
+    return_speaker_targets: true
+
+  joint:
+    fuse_loss_wer: true
+    fused_batch_size: 16
+
+  loss:
+    loss_name: "warprnnt_numba"
+    warprnnt_numba_kwargs:
+      fastemit_lambda: 0.001
+
+  optim:
+    name: "adamw"
+    lr: 1.0e-3
+    betas: [0.9, 0.98]
+    weight_decay: 1.0e-3
+    sched:
+      name: "CosineAnnealing"
+      warmup_steps: 1000
+      min_lr: 1.0e-5
+
+trainer:
+  devices: 1
+  accelerator: "gpu"
+  max_epochs: 5
+  precision: "bf16-mixed"
+  accumulate_grad_batches: 1
+  gradient_clip_val: 1.0
+  log_every_n_steps: 50
+  val_check_interval: 1.0
+  enable_checkpointing: false
+
+exp_manager:
+  exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup"
+  name: "parakeet_ptbr_warmup"
+  create_tensorboard_logger: true
+  create_checkpoint_callback: true
+  resume_if_exists: true
+  resume_ignore_no_checkpoint: true
+  checkpoint_callback_params:
+    monitor: "val_wer"
+    mode: "min"
+    save_top_k: 3
+    always_save_nemo: true
+    every_n_train_steps: 1000

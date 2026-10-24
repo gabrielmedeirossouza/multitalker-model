@@ -1,0 +1,143 @@
+"""Testes de contrato para o simulador de mistura sintética e máscaras de 80ms (Spec 02)."""
+
+import numpy as np
+import pytest
+
+import soundfile as sf
+from src.mixer import (
+    ensure_mono_16khz,
+    generate_mixed_dataset_from_manifest,
+    mix_two_speakers,
+    prevent_clipping,
+)
+from src.schemas import (
+    MAX_PEAK_AMPLITUDE,
+    MixerConfig,
+    REQUIRED_SAMPLE_RATE,
+    SingleSpeakerManifestEntry,
+)
+
+
+def _generate_sine_voice(duration_sec: float, freq_hz: float = 220.0, amp: float = 0.8) -> np.ndarray:
+    t = np.linspace(0.0, duration_sec, int(REQUIRED_SAMPLE_RATE * duration_sec), endpoint=False)
+    return (amp * np.sin(2.0 * np.pi * freq_hz * t)).astype(np.float32)
+
+
+def test_mixer_prevents_clipping_and_mirrors_masks(tmp_path):
+    # Ambos com amplitude máxima 1.0 para forçar colisão acima de 1.0 antes do anti-clipping
+    audio_a = _generate_sine_voice(2.4, freq_hz=200.0, amp=1.0)
+    audio_b = _generate_sine_voice(2.0, freq_hz=350.0, amp=1.0)
+
+    out_wav = tmp_path / "mixed_test.wav"
+    mixed, entries = mix_two_speakers(
+        audio_a=audio_a,
+        text_a="Bom dia pessoal, hoje vamos revisar os resultados.",
+        audio_b=audio_b,
+        text_b="Desculpa interromper, mas o relatório já saiu?",
+        output_wav_path=str(out_wav),
+        offset_sec=1.0,
+        sir_db=0.0,
+        write_wav=True,
+    )
+
+    # 1. Verifica ausência de clipping acústico (pico <= 0.99)
+    assert float(np.max(np.abs(mixed))) <= MAX_PEAK_AMPLITUDE + 1e-5
+    assert out_wav.exists()
+
+    # 2. Verifica espelhamento A/B (2 amostras geradas para 1 arquivo WAV)
+    assert len(entries) == 2
+    entry_a, entry_b = entries
+    assert entry_a.audio_filepath == entry_b.audio_filepath
+    assert entry_a.text == "Bom dia pessoal, hoje vamos revisar os resultados."
+    assert entry_b.text == "Desculpa interromper, mas o relatório já saiu?"
+
+    # 3. As máscaras do Alvo A e do Alvo B devem ser exatamente inversas entre si
+    assert entry_a.spk_targets == entry_b.bg_spk_targets
+    assert entry_a.bg_spk_targets == entry_b.spk_targets
+
+    # 4. Verifica sobreposição real entre 1.0s e 2.4s
+    assert entry_a.overlap_ratio is not None and entry_a.overlap_ratio > 0.2
+
+
+def test_ensure_mono_16khz_rejects_wrong_sample_rate():
+    dummy = np.zeros(8000, dtype=np.float32)
+    with pytest.raises(ValueError, match="16000 Hz"):
+        ensure_mono_16khz(dummy, sample_rate=8000)
+
+
+def test_prevent_clipping_scales_down_loud_signal():
+    loud = np.array([-2.5, 0.0, 2.5], dtype=np.float32)
+    scaled = prevent_clipping(loud, max_peak=0.99)
+    assert np.isclose(np.max(np.abs(scaled)), 0.99, atol=1e-5)
+
+
+def test_mixer_caps_duration_and_supports_gaussian_noise(tmp_path):
+    audio_a = _generate_sine_voice(15.0, freq_hz=200.0, amp=0.5)
+    audio_b = _generate_sine_voice(15.0, freq_hz=300.0, amp=0.5)
+    cfg = MixerConfig(max_duration_sec=20.0, add_gaussian_noise=True)
+
+    mixed, entries = mix_two_speakers(
+        audio_a=audio_a,
+        text_a="Locutor A longo.",
+        audio_b=audio_b,
+        text_b="Locutor B longo.",
+        output_wav_path=str(tmp_path / "capped.wav"),
+        config=cfg,
+        offset_sec=12.0,
+        write_wav=False,
+        speaker_id_a="spk_A",
+        speaker_id_b="spk_B",
+    )
+    assert entries[0].duration <= 20.0
+    assert entries[0].speaker_id == "spk_A"
+    assert entries[1].speaker_id == "spk_B"
+    assert float(np.max(np.abs(mixed))) <= MAX_PEAK_AMPLITUDE + 1e-5
+
+
+def test_generate_mixed_dataset_enforces_distinct_speakers_and_clean_ratio(tmp_path):
+    wav_dir = tmp_path / "clean_wavs"
+    wav_dir.mkdir(parents=True)
+    clean_manifest = tmp_path / "clean_manifest.json"
+
+    lines = []
+    for idx, spk in enumerate(["spk_1", "spk_1", "spk_2", "spk_2"]):
+        wav_path = wav_dir / f"c_{idx}.wav"
+        tone = _generate_sine_voice(1.6, freq_hz=200.0 + idx * 40.0, amp=0.5)
+        sf.write(str(wav_path), tone, REQUIRED_SAMPLE_RATE, subtype="PCM_16")
+        entry = SingleSpeakerManifestEntry.from_clean_audio(
+            audio_filepath=str(wav_path),
+            duration=1.6,
+            text=f"Frase número {idx} do {spk}.",
+            speaker_id=spk,
+        )
+        lines.append(entry.model_dump_json())
+
+    clean_manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    out_dir = tmp_path / "mixed_out"
+    out_manifest = out_dir / "multitalker_manifest.json"
+    # 7 misturas = 14 entradas sobrepostas; com clean_ratio=0.30, adiciona 6 entradas limpas -> total 20
+    total = generate_mixed_dataset_from_manifest(
+        clean_manifest_path=str(clean_manifest),
+        output_dir=str(out_dir),
+        output_manifest_path=str(out_manifest),
+        num_mixtures=7,
+        clean_ratio=0.30,
+        seed=123,
+    )
+    assert total == 20
+    out_lines = [l for l in out_manifest.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(out_lines) == 20
+
+    # Testa retomada idempotente (resume=True): pedir 7 misturas novamente não deve duplicar
+    total_resumed = generate_mixed_dataset_from_manifest(
+        clean_manifest_path=str(clean_manifest),
+        output_dir=str(out_dir),
+        output_manifest_path=str(out_manifest),
+        num_mixtures=7,
+        clean_ratio=0.30,
+        seed=123,
+        resume=True,
+    )
+    assert total_resumed == 20
+    assert len([l for l in out_manifest.read_text(encoding="utf-8").splitlines() if l.strip()]) == 20

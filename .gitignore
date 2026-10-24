@@ -1,0 +1,24 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+dist/
+build/
+
+# Artefatos pesados de áudio, datasets e checkpoints (vivem no Google Drive / SSD do Colab)
+*.wav
+*.flac
+*.mp3
+*.tar.gz
+*.nemo
+*.ckpt
+data/
+local_dataset/
+checkpoints/
+tokenizer_artifacts/
+
+# IMPORTANTE (Spec 05): NUNCA adicione `state/` ou `USER.md` ao .gitignore.
+# Eles são a fonte de verdade stateful versionada entre sessões de agentes de IA.

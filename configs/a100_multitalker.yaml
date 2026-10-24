@@ -1,0 +1,89 @@
+# Configuração Hydra/NeMo — Fase 2: Fine-Tuning Multitalker Cache-Aware na GPU NVIDIA A100
+name: "parakeet_ptbr_multitalker_finetune"
+
+stage: "multitalker"
+init_from_nemo_model: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo"
+freeze_encoder: false
+
+model:
+  sample_rate: 16000
+  tokenizer:
+    dir: "/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024"
+    type: "bpe"
+    vocab_size: 1024
+
+  encoder:
+    # Múltiplas latências Cache-Aware (80ms, 160ms, 560ms, 1.12s)
+    att_context_size:
+      - [70, 0]
+      - [70, 1]
+      - [70, 6]
+      - [70, 13]
+    speaker_kernel:
+      enabled: true
+      inject_layer_idx: 0
+
+  train_ds:
+    manifest_filepath: "/content/local_dataset/multitalker_train_manifest.json"
+    sample_rate: 16000
+    batch_size: 16
+    shuffle: true
+    num_workers: 4
+    pin_memory: true
+    min_duration: 0.5
+    max_duration: 20.0
+    use_bucketing: true
+    bucketing_strategy: "fully_randomized"
+    return_speaker_targets: true
+
+  validation_ds:
+    manifest_filepath: "/content/local_dataset/multitalker_val_manifest.json"
+    sample_rate: 16000
+    batch_size: 8
+    shuffle: false
+    num_workers: 2
+    return_speaker_targets: true
+
+  joint:
+    fuse_loss_wer: true
+    fused_batch_size: 16
+
+  loss:
+    loss_name: "warprnnt_numba"
+    warprnnt_numba_kwargs:
+      fastemit_lambda: 0.001
+
+  optim:
+    name: "adamw"
+    lr: 8.0e-5
+    betas: [0.9, 0.98]
+    weight_decay: 1.0e-3
+    sched:
+      name: "CosineAnnealing"
+      warmup_steps: 2000
+      min_lr: 5.0e-6
+
+trainer:
+  devices: 1
+  accelerator: "gpu"
+  max_epochs: 12
+  precision: "bf16-mixed"
+  accumulate_grad_batches: 2
+  gradient_clip_val: 1.0
+  log_every_n_steps: 50
+  val_check_interval: 0.5
+  enable_checkpointing: false
+
+exp_manager:
+  exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker"
+  name: "parakeet_ptbr_multitalker"
+  create_tensorboard_logger: true
+  create_checkpoint_callback: true
+  resume_if_exists: true
+  resume_ignore_no_checkpoint: true
+  checkpoint_callback_params:
+    monitor: "val_wer"
+    mode: "min"
+    save_top_k: 3
+    always_save_nemo: true
+    every_n_train_steps: 1000
