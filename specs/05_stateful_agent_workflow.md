@@ -90,9 +90,12 @@ Todo agente de IA ao iniciar uma sessão neste repositório **DEVE** seguir este
 
 ## 6. Operação Remota Autônoma via Google Colab CLI (`~/.local/bin/colab`)
 
-O ambiente local possui o `google-colab-cli` instalado em `~/.local/bin/colab` e autenticado via OAuth2 (`~/.config/colab-cli/token.json`). Agentes de IA podem alocar, inspecionar, executar código e trocar o tipo de runtime (`CPU High-RAM` $\leftrightarrow$ `GPU A100`) diretamente do terminal:
+O ambiente local possui o `google-colab-cli` instalado em `~/.local/bin/colab` e autenticado via OAuth2 (`~/.config/colab-cli/token.json`). Agentes de IA podem alocar, inspecionar, executar código e trocar o tipo de runtime (`CPU High-RAM` $\leftrightarrow$ `GPU A100`) diretamente do terminal.
 
-- **Listar sessões e saldo de Compute Units:** `~/.local/bin/colab sessions` e `~/.local/bin/colab usage`
-- **Executar código Python remotamente (via stdin):** `cat << 'EOF' | ~/.local/bin/colab exec -s parakeet --timeout 600`
+> **Obrigatório (`Spec 06`):** toda interação com o Colab passa por `.venv/bin/python -m src.colab_guard`, que impõe limites de tempo, detecta pedidos de autorização (ex.: Google Drive), registra o bloqueio em `USER.md` e retorna códigos de saída determinísticos (`10 = needs_user`: pare e comunique o usuário). É **proibido** chamar `colab exec|drivemount|auth|repl|console` diretamente. Os exemplos abaixo descrevem o CLI subjacente.
+
+- **Listar sessões e saldo de Compute Units:** `.venv/bin/python -m src.colab_guard cli -- sessions` e `... cli -- usage`
+- **Executar código Python remotamente:** `.venv/bin/python -m src.colab_guard exec -f script.py --timeout 120` (tarefas > 10 min: `launch` + `job-status`)
+- **Montar o Google Drive sem bloquear:** `.venv/bin/python -m src.colab_guard drive --open-browser`
 - **Adotar uma sessão já aberta no navegador (`[?]`):** Se o usuário já montou o Google Drive (`/content/drive`) no navegador, o agente pode adotar o endpoint listado em `state.client.list_assignments()` salvando um `SessionState` em `~/.config/colab-cli/sessions.json` via `/Users/gabriel.medeiros/.local/share/uv/tools/google-colab-cli/bin/python`.
-- **Trocar tipo de runtime (de CPU High-RAM para GPU A100):** Encerrar a sessão CPU após concluir o `Step 04` (`~/.local/bin/colab stop -s parakeet`) e criar uma nova sessão com GPU A100 (`~/.local/bin/colab new -s parakeet --gpu A100 --high-mem`).
+- **Trocar tipo de runtime (de CPU High-RAM para GPU A100):** Encerrar a sessão CPU após concluir o `Step 04` (`.venv/bin/python -m src.colab_guard cli -- stop -s parakeet`) e criar uma nova sessão com GPU A100 (`.venv/bin/python -m src.colab_guard cli -- new -s parakeet --gpu A100 --high-mem`). Toda VM nova exige nova autorização do Drive: rode `.venv/bin/python -m src.colab_guard drive --open-browser` e, se sair com código `10`, comunique o usuário.

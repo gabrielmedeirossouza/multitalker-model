@@ -280,3 +280,63 @@ class PipelineState(BaseModel):
                 "Spec 05 violada: overall_status == 'failed' exige pelo menos 1 etapa com status == 'failed'."
             )
         return self
+
+
+# ---------------------------------------------------------------------------
+# Spec 06: Operação remota não-bloqueante do Google Colab (src.colab_guard)
+# ---------------------------------------------------------------------------
+
+ColabGuardStatus = Literal[
+    "ok",
+    "remote_error",
+    "needs_user",
+    "timeout",
+    "idle_timeout",
+    "session_lost",
+    "cli_error",
+    "job_running",
+    "job_not_found",
+]
+
+# Códigos de saída determinísticos (devem coincidir com src/colab_cli_bridge.py).
+COLAB_GUARD_EXIT_CODES: Dict[str, int] = {
+    "ok": 0,
+    "remote_error": 1,
+    "needs_user": 10,
+    "timeout": 11,
+    "idle_timeout": 12,
+    "session_lost": 13,
+    "cli_error": 14,
+    "job_running": 20,
+    "job_not_found": 21,
+}
+
+DEFAULT_SYNC_EXEC_TIMEOUT_SEC: float = 120.0
+MAX_SYNC_EXEC_TIMEOUT_SEC: float = 600.0
+DEFAULT_CLI_PASSTHROUGH_TIMEOUT_SEC: float = 300.0
+
+
+class ColabGuardOutcome(BaseModel):
+    """Resultado determinístico de qualquer chamada remota ao Colab feita por agentes (Spec 06)."""
+
+    status: ColabGuardStatus
+    exit_code: int
+    command: str = Field(..., min_length=1)
+    elapsed_sec: float = Field(..., ge=0.0)
+    reason: Optional[str] = None
+    user_action: Optional[str] = None
+    auth_url: Optional[str] = None
+    blocker_id: Optional[str] = None
+    output_tail: str = ""
+    data: Dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_exit_code(self) -> "ColabGuardOutcome":
+        expected = COLAB_GUARD_EXIT_CODES[self.status]
+        if self.exit_code != expected:
+            raise ValueError(
+                f"Spec 06 violada: status '{self.status}' exige exit_code={expected}, mas recebeu {self.exit_code}."
+            )
+        if self.status == "needs_user" and not (self.user_action or self.auth_url):
+            raise ValueError("Spec 06 violada: status 'needs_user' exige user_action ou auth_url para o humano.")
+        return self

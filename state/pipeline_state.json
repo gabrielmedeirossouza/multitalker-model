@@ -1,7 +1,7 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-24T19:12:21Z",
+  "updated_at": "2026-10-24T19:43:14Z",
   "overall_status": "ready",
   "current_step_id": "step_05_colab_stage1_warmup",
   "steps": [
@@ -128,6 +128,24 @@
       "created_at": "2026-10-24T17:36:34Z",
       "resolved": true,
       "resolved_at": "2026-10-24T17:43:08Z"
+    },
+    {
+      "id": "blocker_a100_drivemount",
+      "step_id": "step_05_colab_stage1_warmup",
+      "description": "Autorização OAuth do Google Drive necessária para a nova VM GPU A100 (gpu-a100-hm-ass1c0-pt7q1sy8w5bi).",
+      "user_action_required": "Clique no link de autorização do Google Drive exibido no chat, aprove o acesso e responda 'ok'.",
+      "created_at": "2026-10-24T19:14:00Z",
+      "resolved": true,
+      "resolved_at": "2026-10-24T19:32:59Z"
+    },
+    {
+      "id": "blocker_colab_drive_auth",
+      "step_id": "step_05_colab_stage1_warmup",
+      "description": "Colab pediu interação humana (drive_auth) durante `bridge drive-mount`.",
+      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22T3z6zVGyZWh9jD5jlMblc9iKCpE%3A1792870382220%22%2C%22endpoint%22%3A%22gpu-a100-hm-ass1c0-pt7q1sy8w5bi%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
+      "created_at": "2026-10-24T19:33:02Z",
+      "resolved": true,
+      "resolved_at": "2026-10-24T19:42:45Z"
     }
   ],
   "agent_handover": {
@@ -253,6 +271,22 @@
       "title": "Prevenção de Travamento Silencioso no Colab CLI: Subprocessos Isolados + Watchdog Timer",
       "problem": "Se uma biblioteca C++ (SentencePiece, PyTorch, NeMo) sofrer SIGABRT/SIGSEGV dentro do processo ipykernel do Colab, o servidor Jupyter nunca envia execute_reply no WebSocket e o colab exec fica bloqueado indefinidamente.",
       "solution": "Sempre executar rotinas pesadas/C++ no Colab via subprocesso isolado ou job em background (gravando logs em /tmp/*.log e status de saída) e sempre agendar um watchdog timer (schedule DurationSeconds com TimerCondition='any') para monitorar o progresso sem depender do usuário."
+    },
+    {
+      "id": "DISC-015",
+      "timestamp": "2026-10-24T19:32:59Z",
+      "category": "colab_guard",
+      "title": "Guarda não-bloqueante src.colab_guard vs colab-mcp e travamento em /dev/tty no drivemount",
+      "problem": "O comando 'colab drivemount' abre '/dev/tty' e bloqueia indefinidamente esperando Enter quando a VM exige OAuth dfs_ephemeral; já 'drive.mount()' dentro de 'colab exec' não instala o colab_request_hook e trava até o timeout. Além disso, o 'googlecolab/colab-mcp' exige sessão aberta no navegador (WebSocket proxy local) e também bloqueia em células síncronas.",
+      "solution": "Toda interação com o Colab DEVE usar '.venv/bin/python -m src.colab_guard' (Spec 06) + 'src/colab_cli_bridge.py'. Ele roda sem TTY controlador (start_new_session=True), testa 'credentials-propagation' em dryrun antes de tocar no kernel, detecta pedidos OAuth no stream em <2s, registra bloqueio automático em USER.md e retorna exit code 10 (needs_user) para o agente parar e avisar o usuário imediatamente."
+    },
+    {
+      "id": "DISC-016",
+      "timestamp": "2026-10-24T19:43:14Z",
+      "category": "colab_drive_auth",
+      "title": "Protocolo dfs_ephemeral: dryrun=false propaga consentimento existente sem exigir navegador e check via /proc/mounts",
+      "problem": "O endpoint '/tun/m/credentials-propagation/{endpoint}' com 'dryrun=true' SEMPRE retorna '{\"success\": false, \"unauthorized_redirect_uri\": \"...\"}' mesmo quando a conta Google já autorizou o app ('O app Google Drive for desktop já tem algum acesso'). Isso fazia o 'colab drivemount' original pedir confirmação no navegador toda vez. Além disso, checar '/api/contents/drive/MyDrive' via REST sofre ReadTimeout quando o Drive não está montado, e 'ColabRuntime' com 'kernel_id' em cache pode lançar 'RuntimeError: Connection was lost.' na primeira conexão.",
+      "solution": "Em 'src/colab_cli_bridge.py', '_try_propagate_or_get_auth_url()' chama primeiro 'dryrun=false' (que retorna '{\"success\": true}' imediatamente quando o consentimento já existe) e só recorre a 'dryrun=true' para extrair a URL se 'dryrun=false' retornar 'success=false'. A checagem de montagem usa '/proc/mounts' + 'os.path.isdir' via '_connect_warm_runtime()' com retry automático para 'Connection was lost'."
     }
   ]
 }

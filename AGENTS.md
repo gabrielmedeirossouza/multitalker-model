@@ -42,14 +42,17 @@ multitalker-model/
 │   ├── 02_mixer_simulator.md       # Simulador de sobreposição sintética (SIR, offset, máscaras 80ms)
 │   ├── 03_tokenizer_ptbr.md        # Tokenizador BPE PT-BR (1024 tokens, pontuação e acentuação)
 │   ├── 04_training_pipeline.md     # Pipeline NeMo em 2 fases (Warm-up + Multitalker) na A100
-│   └── 05_stateful_agent_workflow.md # Orquestração stateful entre agentes, USER.md e AGENT_KNOWLEDGE.md
+│   ├── 05_stateful_agent_workflow.md # Orquestração stateful entre agentes, USER.md e AGENT_KNOWLEDGE.md
+│   └── 06_colab_remote_guard.md    # Guarda não-bloqueante para Colab CLI (timeouts, OAuth Drive, jobs)
 ├── configs/                        # Configurações Hydra/YAML do NVIDIA NeMo
 │   ├── a100_warmup.yaml            # Fase 1: Encoder congelado, treino do Decoder/Joint em PT-BR
 │   └── a100_multitalker.yaml       # Fase 2: Fine-tuning completo Cache-Aware + Speaker Kernels
 ├── src/                            # 2. IMPLEMENTAÇÃO MODULAR (Derivada das Specs)
 │   ├── __init__.py
-│   ├── schemas.py                  # Contratos Pydantic v2 (manifestos, configs e PipelineState)
+│   ├── schemas.py                  # Contratos Pydantic v2 (manifestos, configs, PipelineState, ColabGuardOutcome)
 │   ├── state.py                    # CLI e motor stateful de progresso, bloqueios, USER.md e descobertas
+│   ├── colab_guard.py              # CLI e executor não-bloqueante para o Google Colab (Spec 06)
+│   ├── colab_cli_bridge.py         # Ponte não-interativa para internals do google-colab-cli (Spec 06)
 │   ├── data_prep.py                # Download/normalização 16kHz de datasets PT-BR e geração de .tar.gz
 │   ├── mixer.py                    # Misturador sintético multitalker (70/30) e extrator de spk_targets (80ms)
 │   ├── tokenizer.py                # Treino do SentencePiece BPE (1024) e change_vocabulary()
@@ -59,7 +62,8 @@ multitalker-model/
 │   ├── test_manifest_schema.py     # Valida alinhamento de frames (ceil(duration / 0.08)) e contratos
 │   ├── test_mixer_audio.py         # Valida mistura sintética, ausência de clipping, locutores distintos e 70/30
 │   ├── test_tokenizer_spec.py      # Valida restrições de vocabulário (1024 tokens e caracteres PT-BR)
-│   └── test_state_workflow.py      # Valida sincronia obrigatória entre pipeline_state.json, USER.md e AGENT_KNOWLEDGE.md
+│   ├── test_state_workflow.py      # Valida sincronia obrigatória entre pipeline_state.json, USER.md e AGENT_KNOWLEDGE.md
+│   └── test_colab_guard.py         # Valida guarda não-bloqueante do Colab, detecção de OAuth e jobs remotos
 └── colab_runner.ipynb              # 4. EXECUTOR REMOTO (Worker GPU no Google Colab)
 ```
 
@@ -67,7 +71,7 @@ multitalker-model/
 
 ## 3. Invariantes Técnicas Inegociáveis
 
-Ao gerar ou revisar código neste projeto, verifique sempre estas 7 regras:
+Ao gerar ou revisar código neste projeto, verifique sempre estas 8 regras:
 
 1. **Taxa de Amostragem e Formato de Áudio (`Spec 01`):**
    - Todo áudio processado ou salvo deve estar estritamente em **16.000 Hz**, **1 canal (mono)**, `float32` normalizado no intervalo `[-1.0, 1.0]`.
@@ -89,6 +93,11 @@ Ao gerar ou revisar código neste projeto, verifique sempre estas 7 regras:
    - Nunca leia milhares de arquivos `.wav` diretamente de `/content/drive/MyDrive/` durante o treinamento. Os datasets ficam salvos como `.tar.gz` no Drive e extraídos no SSD NVMe local (`/content/local_dataset/`) antes de iniciar o treino.
 7. **Tolerância a Desconexões no Colab (`Spec 04`):**
    - Os checkpoints (`.ckpt` e `.nemo`) devem ser gravados diretamente no Google Drive com `resume_if_exists=True` ativado no `exp_manager` do NeMo.
+8. **Operação Remota Não-Bloqueante do Colab (`Spec 06`):**
+   - **PROIBIDO** invocar diretamente `~/.local/bin/colab exec|drivemount|auth|repl|console|ssh`. Esses comandos abrem `/dev/tty` ou esperam `execute_reply` indefinidamente quando o Google Drive pede autorização OAuth (`dfs_ephemeral`) ou quando o kernel sofre crash.
+   - Toda operação remota no Colab **DEVE** passar por `.venv/bin/python -m src.colab_guard` (`preflight`, `drive`, `exec`, `launch`, `job-status`, `job-kill`, `interrupt`, `cli`).
+   - Se `src.colab_guard` retornar código de saída **`10` (`needs_user`)**, o bloqueio já foi registrado em `USER.md`: o agente **DEVE parar imediatamente, comunicar a URL/ação ao usuário e encerrar o turno** sem ficar em loop.
+   - Tarefas com duração esperada `> 600 s` (preparação massiva, treinos Fase 1/2) **DEVEM** ser disparadas via `src.colab_guard launch` e monitoradas com `job-status` + `schedule`.
 
 ---
 
@@ -117,12 +126,14 @@ Ao gerar ou revisar código neste projeto, verifique sempre estas 7 regras:
   python -m src.trainer --stage warmup --manifest /content/local_dataset/clean_train_manifest.json --val_manifest /content/local_dataset/clean_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state
   python -m src.trainer --stage multitalker --manifest /content/local_dataset/multitalker_train_manifest.json --val_manifest /content/local_dataset/multitalker_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker --update_state
   ```
-- **Operar o Google Colab remotamente via CLI (`~/.local/bin/colab`):**
+- **Operar o Google Colab remotamente sem bloqueio via `src.colab_guard` (`Spec 06`):**
   ```bash
-  ~/.local/bin/colab sessions
-  ~/.local/bin/colab status
-  ~/.local/bin/colab new -s parakeet --high-mem            # Aloca CPU High-RAM (Steps 01-04)
-  ~/.local/bin/colab new -s parakeet --gpu A100 --high-mem # Aloca GPU A100 (Steps 05-07)
-  echo "import os; print(os.listdir('/content'))" | ~/.local/bin/colab exec -s parakeet --timeout 120
-  ~/.local/bin/colab stop -s parakeet
+  .venv/bin/python -m src.colab_guard preflight --open-browser
+  .venv/bin/python -m src.colab_guard drive --open-browser
+  .venv/bin/python -m src.colab_guard exec --code "import os; print(os.listdir('/content'))" --timeout 60
+  .venv/bin/python -m src.colab_guard launch --job warmup --cmd "python -m src.trainer --stage warmup ..."
+  .venv/bin/python -m src.colab_guard job-status --job warmup --tail 40
+  .venv/bin/python -m src.colab_guard cli -- sessions
+  .venv/bin/python -m src.colab_guard cli -- new -s parakeet --gpu A100 --high-mem
+  .venv/bin/python -m src.colab_guard cli -- stop -s parakeet
   ```

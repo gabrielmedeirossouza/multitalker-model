@@ -7,7 +7,7 @@
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
 - **Status Geral:** 🟢 Pronto para Iniciar / Continuar
 - **Etapa Atual:** `step_05_colab_stage1_warmup` — Treinamento Fase 1 (Warm-up: Encoder Congelado, Decoder/Joint PT-BR) na GPU A100 (`colab_a100`)
-- **Última Atualização (UTC):** `2026-10-24T19:12:21Z`
+- **Última Atualização (UTC):** `2026-10-24T19:43:14Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
