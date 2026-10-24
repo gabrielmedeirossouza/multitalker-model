@@ -10,7 +10,7 @@ reuse_vocab_independent_weights: true
 model:
   sample_rate: 16000
   tokenizer:
-    dir: "/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024"
+    dir: "/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/tokenizer_ptbr_1024"
     type: "bpe"
     vocab_size: 1024
 
@@ -83,7 +83,7 @@ trainer:
   use_distributed_sampler: false
 
 exp_manager:
-  exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup"
+  exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup"
   name: "parakeet_ptbr_warmup"
   create_tensorboard_logger: true
   create_checkpoint_callback: true

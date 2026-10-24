@@ -426,10 +426,15 @@ def run_nemo_training(
             from src.state import complete_step
 
             next_step = "step_06_colab_stage2_multitalker" if stage == "warmup" else "step_07_eval_and_export"
+            # Fase 2 em diretório irmão do warmup (ex.: exp_coraa_mupe_warmup -> exp_coraa_mupe_multitalker)
+            warmup_dir = Path(checkpoint_dir)
+            multitalker_dir = warmup_dir.with_name(warmup_dir.name.replace("warmup", "multitalker"))
             next_stage_cmd = (
                 "python -m src.trainer --stage multitalker --manifest /content/local_dataset/multitalker_train_manifest.json "
                 "--val_manifest /content/local_dataset/multitalker_val_manifest.json "
-                "--checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker --update_state"
+                f"--checkpoint_dir {multitalker_dir} "
+                f"--init_model {warmup_dir}/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo "
+                f"--tokenizer_dir {raw_cfg['model']['tokenizer']['dir']} --update_state"
                 if stage == "warmup"
                 else (
                     f"python -m src.evaluator --model_path {checkpoint_dir}/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker.nemo "

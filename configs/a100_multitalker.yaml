@@ -2,13 +2,13 @@
 name: "parakeet_ptbr_multitalker_finetune"
 
 stage: "multitalker"
-init_from_nemo_model: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo"
+init_from_nemo_model: "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo"
 freeze_encoder: false
 
 model:
   sample_rate: 16000
   tokenizer:
-    dir: "/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024"
+    dir: "/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/tokenizer_ptbr_1024"
     type: "bpe"
     vocab_size: 1024
 
@@ -93,7 +93,7 @@ trainer:
   use_distributed_sampler: false
 
 exp_manager:
-  exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker"
+  exp_dir: "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker"
   name: "parakeet_ptbr_multitalker"
   create_tensorboard_logger: true
   create_checkpoint_callback: true

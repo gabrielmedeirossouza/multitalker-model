@@ -119,12 +119,12 @@ Ao gerar ou revisar código neste projeto, verifique sempre estas 8 regras:
   ```
 - **Preparar/Extrair datasets e tokenizador diretamente no Worker Colab + Google Drive (Steps 01 a 04):**
   ```bash
-  python -m src.data_prep --ensure_colab_dataset --dataset fleurs_pt --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr --update_state
+  python -m src.data_prep --ensure_colab_dataset --dataset coraa_mupe --val_stride 4 --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr --update_state
   ```
 - **Disparar treinamento (no Worker GPU / Colab A100 — Steps 05 a 07):**
   ```bash
-  python -m src.trainer --stage warmup --manifest /content/local_dataset/clean_train_manifest.json --val_manifest /content/local_dataset/clean_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state
-  python -m src.trainer --stage multitalker --manifest /content/local_dataset/multitalker_train_manifest.json --val_manifest /content/local_dataset/multitalker_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_multitalker --update_state
+  python -m src.trainer --stage warmup --manifest /content/local_dataset/clean_train_manifest.json --val_manifest /content/local_dataset/clean_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup --tokenizer_dir /content/drive/MyDrive/parakeet_ptbr/coraa_mupe/tokenizer_ptbr_1024 --update_state
+  python -m src.trainer --stage multitalker --manifest /content/local_dataset/multitalker_train_manifest.json --val_manifest /content/local_dataset/multitalker_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker --tokenizer_dir /content/drive/MyDrive/parakeet_ptbr/coraa_mupe/tokenizer_ptbr_1024 --update_state
   ```
 - **Operar o Google Colab remotamente sem bloqueio via `src.colab_guard` (`Spec 06`):**
   ```bash

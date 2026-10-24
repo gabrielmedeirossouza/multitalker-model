@@ -182,7 +182,7 @@ def create_initial_pipeline_state() -> PipelineState:
                 "baixar/normalizar em /content/local_dataset, treinar o tokenizador, gerar misturas 70/30 e salvar o .tar.gz no Google Drive."
             ),
             next_exact_command=(
-                "python -m src.data_prep --ensure_colab_dataset --dataset fleurs_pt "
+                "python -m src.data_prep --ensure_colab_dataset --dataset coraa_mupe --val_stride 4 "
                 "--local_dataset_dir /content/local_dataset "
                 "--drive_root_dir /content/drive/MyDrive/parakeet_ptbr --update_state"
             ),

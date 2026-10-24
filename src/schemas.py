@@ -94,6 +94,22 @@ class SingleSpeakerManifestEntry(MultitalkerManifestEntry):
         )
 
 
+class HFDatasetSource(BaseModel):
+    """Contrato de uma fonte de fala single-speaker PT-BR no Hugging Face (Spec 01 §2.1)."""
+
+    hf_path: str
+    hf_config: Optional[str] = None
+    text_field: str
+    split_aliases: Dict[str, str] = Field(default_factory=dict)
+    speaker_fields: List[str] = Field(default_factory=list)
+    allowed_values: Dict[str, List[str]] = Field(default_factory=dict)
+    strip_annotations: bool = False
+
+    def hub_split(self, split: str) -> str:
+        """Nome do split no Hub para um split canônico do pipeline (ex.: validation -> dev)."""
+        return self.split_aliases.get(split, split)
+
+
 class MixerConfig(BaseModel):
     """Contrato de configuração do simulador de sobreposição sintética (Spec 02)."""
 

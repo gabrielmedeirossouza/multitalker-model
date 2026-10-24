@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import tarfile
+import unicodedata
 from pathlib import Path
-from typing import Optional, Set
+from typing import Any, Mapping, Optional, Set
 
 import numpy as np
 import soundfile as sf
@@ -14,6 +16,7 @@ import soundfile as sf
 from src.mixer import ensure_mono_16khz, prevent_clipping
 from src.schemas import (
     DEFAULT_MAX_DURATION_SEC,
+    HFDatasetSource,
     MultitalkerManifestEntry,
     REQUIRED_SAMPLE_RATE,
     SingleSpeakerManifestEntry,
@@ -21,11 +24,60 @@ from src.schemas import (
 
 
 SUPPORTED_HF_DATASETS = {
-    "mls_pt": ("facebook/multilingual_librispeech", "portuguese", "transcript"),
-    "fleurs_pt": ("google/fleurs", "pt_br", "raw_transcription"),
-    "coraa": ("nilc-nlp/CORAA-ASR", "default", "text"),
-    "common_voice_pt": ("mozilla-foundation/common_voice_17_0", "pt", "sentence"),
+    "mls_pt": HFDatasetSource(
+        hf_path="facebook/multilingual_librispeech", hf_config="portuguese", text_field="transcript"
+    ),
+    "fleurs_pt": HFDatasetSource(hf_path="google/fleurs", hf_config="pt_br", text_field="raw_transcription"),
+    "coraa": HFDatasetSource(
+        hf_path="Racoci/CORAA-v1.1",
+        hf_config="default",
+        text_field="text",
+        split_aliases={"validation": "dev"},
+    ),
+    "coraa_mupe": HFDatasetSource(
+        hf_path="nilc-nlp/CORAA-MUPE-ASR",
+        hf_config="default",
+        text_field="original_text",
+        speaker_fields=["speaker_code", "speaker_type"],
+        allowed_values={"audio_quality": ["high"]},
+        strip_annotations=True,
+    ),
+    "common_voice_pt": HFDatasetSource(
+        hf_path="mozilla-foundation/common_voice_17_0", hf_config="pt", text_field="sentence"
+    ),
 }
+
+_ANNOTATION_RE = re.compile(r"\([^)]*\)")
+_SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([,.?!])")
+
+
+def normalize_transcript(text: str, strip_annotations: bool = False) -> Optional[str]:
+    """
+    Normaliza uma transcrição para o manifesto (Spec 01 §2.2). Retorna None quando a
+    amostra deve ser descartada (segmento truncado ou texto vazio após a limpeza).
+    """
+    text = unicodedata.normalize("NFC", text)
+    if strip_annotations:
+        if "<" in text or ">" in text:
+            return None
+        text = _ANNOTATION_RE.sub(" ", text)
+    text = " ".join(text.split())
+    if strip_annotations:
+        text = _SPACE_BEFORE_PUNCT_RE.sub(r"\1", text)
+    return text or None
+
+
+def _speaker_id_for_item(source: HFDatasetSource, item: Mapping[str, Any], dataset_key: str, idx: int) -> str:
+    """Monta o speaker_id a partir de speaker_fields ou das colunas usuais (Spec 01 §2.1)."""
+    if source.speaker_fields:
+        parts = [str(item.get(f) or "").strip().replace("/", "-") for f in source.speaker_fields]
+        if all(parts):
+            return f"{dataset_key}_" + "_".join(parts)
+    else:
+        raw_spk = item.get("speaker_id") or item.get("client_id") or item.get("speaker")
+        if raw_spk is not None and str(raw_spk).strip() not in ("", "None"):
+            return str(raw_spk).strip()
+    return f"{dataset_key}_{idx}"
 
 
 def rewrite_manifest_audio_paths(
@@ -91,16 +143,22 @@ def export_hf_dataset_to_nemo_manifest(
     max_duration: float = DEFAULT_MAX_DURATION_SEC,
     target_root_dir: Optional[str] = None,
     resume: bool = True,
+    stride: int = 1,
+    dataset: Optional[Any] = None,
 ) -> Path:
     """
-    Baixa um dataset PT-BR via Hugging Face Datasets, força 16kHz mono e gera o
+    Baixa um dataset PT-BR via Hugging Face Datasets (streaming), força 16kHz mono e gera o
     manifesto validado pelo contrato SingleSpeakerManifestEntry (Spec 01).
     Suporta retomada idempotente (resume=True) caso uma execução anterior tenha sido interrompida.
+    `stride` mantém 1 a cada N amostras (Spec 01 §2.3); `dataset` injeta um iterável já carregado (testes).
     """
     if dataset_key not in SUPPORTED_HF_DATASETS:
         raise ValueError(
             f"Dataset '{dataset_key}' não suportado. Opções: {list(SUPPORTED_HF_DATASETS.keys())}"
         )
+    if stride < 1:
+        raise ValueError(f"stride deve ser >= 1 (recebido: {stride}).")
+    source = SUPPORTED_HF_DATASETS[dataset_key]
 
     out_root = Path(output_dir)
     wav_dir = out_root / "wavs"
@@ -112,20 +170,31 @@ def export_hf_dataset_to_nemo_manifest(
     if max_samples is not None and written >= max_samples:
         return manifest_path
 
-    from datasets import Audio, load_dataset  # Importação tardia para não exigir datasets em testes CPU puros
+    ds = dataset
+    if ds is None:
+        from datasets import Audio, load_dataset  # Importação tardia para não exigir datasets em testes CPU puros
 
-    hf_path, hf_config, text_col = SUPPORTED_HF_DATASETS[dataset_key]
-    ds = load_dataset(hf_path, hf_config, split=split, streaming=max_samples is not None)
-    ds = ds.cast_column("audio", Audio(sampling_rate=REQUIRED_SAMPLE_RATE))
+        ds = load_dataset(source.hf_path, source.hf_config, split=source.hub_split(split), streaming=True)
+        ds = ds.cast_column("audio", Audio(sampling_rate=REQUIRED_SAMPLE_RATE))
 
     mode = "a" if (resume and manifest_path.exists()) else "w"
     with open(manifest_path, mode, encoding="utf-8") as mf:
         for idx, item in enumerate(ds):
             if max_samples is not None and written >= max_samples:
                 break
+            if idx % stride:
+                continue
 
             wav_filename = f"{dataset_key}_{split}_{idx:07d}.wav"
             if wav_filename in existing_wav_names:
+                continue
+
+            if any(str(item.get(field)) not in allowed for field, allowed in source.allowed_values.items()):
+                continue
+
+            raw_text = str(item.get(source.text_field) or item.get("transcription") or "")
+            text = normalize_transcript(raw_text, strip_annotations=source.strip_annotations)
+            if not text:
                 continue
 
             audio_arr = np.asarray(item["audio"]["array"], dtype=np.float32)
@@ -134,10 +203,6 @@ def export_hf_dataset_to_nemo_manifest(
             duration = round(len(audio_arr) / REQUIRED_SAMPLE_RATE, 4)
 
             if duration < min_duration or duration > max_duration:
-                continue
-
-            text = str(item.get(text_col) or item.get("transcription") or "").strip()
-            if not text:
                 continue
 
             audio_arr = prevent_clipping(audio_arr)
@@ -150,18 +215,11 @@ def export_hf_dataset_to_nemo_manifest(
                 else str(wav_path)
             )
 
-            raw_spk = item.get("speaker_id") or item.get("client_id") or item.get("speaker")
-            spk_id = (
-                str(raw_spk).strip()
-                if raw_spk is not None and str(raw_spk).strip() not in ("", "None")
-                else f"{dataset_key}_{idx}"
-            )
-
             entry = SingleSpeakerManifestEntry.from_clean_audio(
                 audio_filepath=manifest_audio_path,
                 duration=duration,
                 text=text,
-                speaker_id=spk_id,
+                speaker_id=_speaker_id_for_item(source, item, dataset_key, idx),
             )
             mf.write(entry.model_dump_json() + "\n")
             existing_wav_names.add(wav_filename)
@@ -179,7 +237,8 @@ def pack_dataset_for_colab_ssd(dataset_dir: str, output_tar_gz: str) -> Path:
     out_path = Path(output_tar_gz)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with tarfile.open(out_path, "w:gz") as tar:
+    # compresslevel=1: WAV PCM comprime pouco e o nível 9 padrão é lento demais para ~40 GB (Spec 01 §3)
+    with tarfile.open(out_path, "w:gz", compresslevel=1) as tar:
         tar.add(src_path, arcname=".")
 
     return out_path
@@ -213,23 +272,25 @@ def ensure_colab_dataset_ready(
     num_train_mixtures: int = 1000,
     num_val_mixtures: int = 200,
     clean_ratio: float = 0.30,
+    val_stride: int = 1,
     update_state: bool = False,
 ) -> Path:
     """
-    Orquestrador 100% Colab + Google Drive (Zero GB no computador local — Spec 01 e Spec 05):
-    - Se `ptbr_dataset_16khz.tar.gz` e `tokenizer_ptbr_1024/tokenizer.vocab` já existirem em `drive_root_dir`,
+    Orquestrador 100% Colab + Google Drive (Zero GB no computador local — Spec 01 e Spec 05).
+    Os artefatos de cada corpus ficam em `drive_root_dir/<dataset_key>/` (Spec 01 §3):
+    - Se `ptbr_dataset_16khz.tar.gz` e `tokenizer_ptbr_1024/tokenizer.vocab` já existirem nesse diretório,
       apenas extrai o `.tar.gz` para `local_dataset_dir` (/content/local_dataset) caso ainda não extraído.
     - Caso contrário, executa idempotentemente na VM do Colab:
-      1. Step 01: Download e padronização 16kHz mono de `train` e `validation` em `local_dataset_dir`.
-      2. Step 02: Treinamento do tokenizador SentencePiece BPE (1.024 tokens) em `drive_root_dir/tokenizer_ptbr_1024`.
+      1. Step 01: Download e padronização 16kHz mono de `train` e `validation` (1 a cada `val_stride`) em `local_dataset_dir`.
+      2. Step 02: Treinamento do tokenizador SentencePiece BPE (1.024 tokens) em `<corpus>/tokenizer_ptbr_1024`.
       3. Step 03: Mixagem sintética sobreposta (70/30 no treino, 100% no val) em `local_dataset_dir`.
-      4. Step 04: Empacotamento de `local_dataset_dir` em `drive_root_dir/ptbr_dataset_16khz.tar.gz`.
+      4. Step 04: Empacotamento de `local_dataset_dir` em `<corpus>/ptbr_dataset_16khz.tar.gz`.
     """
     from src.mixer import generate_mixed_dataset_from_manifest
     from src.tokenizer import extract_corpus_from_manifests, train_sentencepiece_bpe_ptbr
 
     local_root = Path(local_dataset_dir)
-    drive_root = Path(drive_root_dir)
+    drive_root = Path(drive_root_dir) / dataset_key
     local_root.mkdir(parents=True, exist_ok=True)
     drive_root.mkdir(parents=True, exist_ok=True)
 
@@ -239,6 +300,12 @@ def ensure_colab_dataset_ready(
     clean_val_manifest = local_root / "clean_val_manifest.json"
     multi_train_manifest = local_root / "multitalker_train_manifest.json"
     multi_val_manifest = local_root / "multitalker_val_manifest.json"
+    warmup_cmd = (
+        "python -m src.trainer --stage warmup "
+        f"--manifest {clean_train_manifest} --val_manifest {clean_val_manifest} "
+        f"--checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_{dataset_key}_warmup "
+        f"--tokenizer_dir {tokenizer_dir} --update_state"
+    )
 
     # Caminho rápido: pacote já construído em sessão anterior no Google Drive
     if tar_gz_path.exists() and (tokenizer_dir / "tokenizer.vocab").exists():
@@ -258,11 +325,7 @@ def ensure_colab_dataset_ready(
                 step_id="step_04_pack_and_upload_drive",
                 next_step_id="step_05_colab_stage1_warmup",
                 next_action="Iniciar o treinamento da Fase 1 (warmup) na GPU A100 (Célula 4 do colab_runner.ipynb).",
-                next_command=(
-                    "python -m src.trainer --stage warmup "
-                    f"--manifest {clean_train_manifest} --val_manifest {clean_val_manifest} "
-                    "--checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state"
-                ),
+                next_command=warmup_cmd,
                 last_summary=f"Pacote {tar_gz_path} encontrado no Drive e extraído em {local_root}.",
                 artifacts={
                     "colab_bundle_tar_gz": str(tar_gz_path),
@@ -293,6 +356,7 @@ def ensure_colab_dataset_ready(
             manifest_filename="clean_val_manifest.json",
             max_samples=max_samples,
             resume=True,
+            stride=val_stride,
         )
     if update_state:
         complete_step(
@@ -360,11 +424,7 @@ def ensure_colab_dataset_ready(
             step_id="step_04_pack_and_upload_drive",
             next_step_id="step_05_colab_stage1_warmup",
             next_action="Iniciar o treinamento da Fase 1 (warmup) na GPU A100 (Célula 4 do colab_runner.ipynb).",
-            next_command=(
-                "python -m src.trainer --stage warmup "
-                f"--manifest {clean_train_manifest} --val_manifest {clean_val_manifest} "
-                "--checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state"
-            ),
+            next_command=warmup_cmd,
             last_summary=f"Etapas 01 a 04 concluídas no Colab. Pacote salvo em {tar_gz_path}.",
             artifacts={"colab_bundle_tar_gz": str(tar_gz_path)},
         )
@@ -400,6 +460,7 @@ def main() -> None:
     parser.add_argument("--drive_root_dir", default="/content/drive/MyDrive/parakeet_ptbr")
     parser.add_argument("--num_train_mixtures", type=int, default=1000)
     parser.add_argument("--num_val_mixtures", type=int, default=200)
+    parser.add_argument("--val_stride", type=int, default=1, help="Mantém 1 a cada N amostras da validação (Spec 01 §2.3).")
     parser.add_argument("--no_resume", action="store_true", help="Desativa retomada incremental e recria o manifesto do zero.")
     parser.add_argument("--update_state", action="store_true", help="Atualiza state/pipeline_state.json e USER.md.")
     args = parser.parse_args()
@@ -412,6 +473,7 @@ def main() -> None:
             max_samples=args.max_samples,
             num_train_mixtures=args.num_train_mixtures,
             num_val_mixtures=args.num_val_mixtures,
+            val_stride=args.val_stride,
             update_state=args.update_state,
         )
         print(f"[Spec 01 / Colab] Dataset e tokenizador prontos em {args.local_dataset_dir} (Drive: {archive})")
@@ -443,7 +505,7 @@ def main() -> None:
                         "python -m src.trainer --stage warmup "
                         "--manifest /content/local_dataset/clean_train_manifest.json "
                         "--val_manifest /content/local_dataset/clean_val_manifest.json "
-                        "--checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state"
+                        f"--checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_{args.dataset}_warmup --update_state"
                     ),
                     last_summary=f"Bundle Colab {archive} empacotado com caminhos /content/local_dataset.",
                     artifacts={"colab_bundle_tar_gz": str(archive)},

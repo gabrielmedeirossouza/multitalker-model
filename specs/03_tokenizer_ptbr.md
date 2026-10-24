@@ -33,7 +33,7 @@ asr_model = nemo_asr.models.ASRModel.from_pretrained(
     "nvidia/multitalker-parakeet-streaming-0.6b-v1"
 )
 asr_model.change_vocabulary(
-    new_tokenizer_dir="/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024",
+    new_tokenizer_dir="/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/tokenizer_ptbr_1024",
     new_tokenizer_type="bpe",
 )
 ```

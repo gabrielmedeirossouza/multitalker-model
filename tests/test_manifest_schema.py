@@ -1,19 +1,30 @@
 """Testes de contrato para manifestos NeMo e configurações de estágio (Spec 01 e Spec 04)."""
 
+import json
 import math
+
+import numpy as np
 import pytest
 from pydantic import ValidationError
 
 from src.schemas import (
     EvaluationReport,
     FRAME_DURATION_SEC,
+    HFDatasetSource,
     MultitalkerManifestEntry,
     REQUIRED_ATT_CONTEXT_SIZE,
     SingleSpeakerManifestEntry,
     TrainingStageConfig,
     expected_frames_for_duration,
 )
-from src.data_prep import ensure_colab_dataset_ready, pack_dataset_for_colab_ssd, rewrite_manifest_audio_paths
+from src.data_prep import (
+    SUPPORTED_HF_DATASETS,
+    ensure_colab_dataset_ready,
+    export_hf_dataset_to_nemo_manifest,
+    normalize_transcript,
+    pack_dataset_for_colab_ssd,
+    rewrite_manifest_audio_paths,
+)
 from src.evaluator import compute_word_error_rate
 from src.trainer import (
     apply_stage_optimizations_to_nemo_model,
@@ -393,12 +404,14 @@ def test_ensure_colab_dataset_ready_fast_path_extracts_existing_tar(tmp_path):
     )
     (staging / "multitalker_train_manifest.json").write_text(entry.model_dump_json() + "\n", encoding="utf-8")
 
+    # Artefatos por corpus em <drive_root_dir>/<dataset>/ (Spec 01 §3)
     drive_root = tmp_path / "drive_parakeet"
-    tok_dir = drive_root / "tokenizer_ptbr_1024"
+    corpus_root = drive_root / "fleurs_pt"
+    tok_dir = corpus_root / "tokenizer_ptbr_1024"
     tok_dir.mkdir(parents=True)
     (tok_dir / "tokenizer.vocab").write_text("a\t0\n", encoding="utf-8")
 
-    tar_path = drive_root / "ptbr_dataset_16khz.tar.gz"
+    tar_path = corpus_root / "ptbr_dataset_16khz.tar.gz"
     pack_dataset_for_colab_ssd(str(staging), str(tar_path))
 
     colab_ssd = tmp_path / "colab_local_dataset"
@@ -409,3 +422,88 @@ def test_ensure_colab_dataset_ready_fast_path_extracts_existing_tar(tmp_path):
     )
     assert returned_tar == tar_path
     assert (colab_ssd / "multitalker_train_manifest.json").exists()
+
+    # Outro corpus nunca reaproveita o pacote do FLEURS
+    assert not (drive_root / "coraa_mupe" / "ptbr_dataset_16khz.tar.gz").exists()
+
+
+def test_supported_hf_datasets_follow_source_contract():
+    assert all(isinstance(src, HFDatasetSource) for src in SUPPORTED_HF_DATASETS.values())
+    mupe = SUPPORTED_HF_DATASETS["coraa_mupe"]
+    assert mupe.hf_path == "nilc-nlp/CORAA-MUPE-ASR"
+    assert mupe.text_field == "original_text"
+    assert mupe.speaker_fields == ["speaker_code", "speaker_type"]
+    assert mupe.allowed_values == {"audio_quality": ["high"]}
+    assert mupe.strip_annotations is True
+    assert SUPPORTED_HF_DATASETS["coraa"].hub_split("validation") == "dev"
+    assert SUPPORTED_HF_DATASETS["coraa"].hub_split("train") == "train"
+    assert mupe.hub_split("validation") == "validation"
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("Muito pouco dinheiro. (risos) Foi difícil.", "Muito pouco dinheiro. Foi difícil."),
+        ("Ele saiu () e voltou ( ) depois (pausa) .", "Ele saiu e voltou depois."),
+        ("ãh\xa0 mesas fixas,  onde nós almoçávamos", "ãh mesas fixas, onde nós almoçávamos"),
+        ("Então, mata um pouco a sauda>", None),
+        ("< em 52. E a senhora saberia dizer?", None),
+        ("(risos)", None),
+    ],
+)
+def test_normalize_transcript_strips_mupe_annotations(raw, expected):
+    assert normalize_transcript(raw, strip_annotations=True) == expected
+
+
+def test_normalize_transcript_keeps_text_without_strip_annotations():
+    # FLEURS pode ter parênteses legítimos: só NFC e colapso de espaços
+    decomposed = "Organizac\u0327a\u0303o (OMS)  mundial"
+    assert normalize_transcript(decomposed) == "Organização (OMS) mundial"
+
+
+def _fake_mupe_item(text, speaker_code="MA_HV273", speaker_type="R", quality="high", seconds=1.0):
+    t = np.arange(int(16000 * seconds), dtype=np.float32) / 16000.0
+    return {
+        "audio": {"array": 0.3 * np.sin(2 * np.pi * 220.0 * t), "sampling_rate": 16000},
+        "original_text": text,
+        "speaker_code": speaker_code,
+        "speaker_type": speaker_type,
+        "audio_quality": quality,
+    }
+
+
+def test_export_fake_mupe_dataset_filters_and_composes_speaker(tmp_path):
+    items = [
+        _fake_mupe_item("Durante 15 anos, mais ou menos. (risos)"),
+        _fake_mupe_item("Áudio ruim.", quality="low"),
+        _fake_mupe_item("E com dezess>"),
+        _fake_mupe_item("E a senhora nasceu onde?", speaker_type="P/1"),
+        _fake_mupe_item("Curto demais.", seconds=0.3),
+    ]
+    manifest = export_hf_dataset_to_nemo_manifest(
+        dataset_key="coraa_mupe",
+        split="train",
+        output_dir=str(tmp_path),
+        manifest_filename="clean_train_manifest.json",
+        dataset=items,
+    )
+    records = [json.loads(line) for line in manifest.read_text(encoding="utf-8").splitlines()]
+    assert [r["text"] for r in records] == ["Durante 15 anos, mais ou menos.", "E a senhora nasceu onde?"]
+    assert [r["speaker_id"] for r in records] == ["coraa_mupe_MA_HV273_R", "coraa_mupe_MA_HV273_P-1"]
+    assert records[0]["audio_filepath"].endswith("coraa_mupe_train_0000000.wav")
+    for r in records:
+        MultitalkerManifestEntry.model_validate(r)
+
+
+def test_export_val_stride_keeps_one_every_k(tmp_path):
+    items = [_fake_mupe_item(f"Frase número {i}.") for i in range(10)]
+    manifest = export_hf_dataset_to_nemo_manifest(
+        dataset_key="coraa_mupe",
+        split="validation",
+        output_dir=str(tmp_path),
+        manifest_filename="clean_val_manifest.json",
+        stride=4,
+        dataset=items,
+    )
+    texts = [json.loads(line)["text"] for line in manifest.read_text(encoding="utf-8").splitlines()]
+    assert texts == ["Frase número 0.", "Frase número 4.", "Frase número 8."]
