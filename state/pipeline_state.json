@@ -1,9 +1,9 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-24T19:08:28Z",
+  "updated_at": "2026-10-24T19:12:21Z",
   "overall_status": "ready",
-  "current_step_id": "step_01_data_prep_clean",
+  "current_step_id": "step_05_colab_stage1_warmup",
   "steps": [
     {
       "step_id": "step_00_audit_and_contracts",
@@ -28,49 +28,59 @@
       "step_id": "step_01_data_prep_clean",
       "title": "Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD",
       "environment": "colab_cpu",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "completed",
+      "started_at": "2026-10-24T19:09:09Z",
+      "completed_at": "2026-10-24T19:09:09Z",
       "last_command": null,
-      "artifacts": {},
+      "artifacts": {
+        "clean_train_manifest": "/content/local_dataset/clean_train_manifest.json",
+        "clean_val_manifest": "/content/local_dataset/clean_val_manifest.json"
+      },
       "metrics": {},
-      "notes": null
+      "notes": "Baixando fleurs_pt (train + validation) no SSD do Colab."
     },
     {
       "step_id": "step_02_tokenizer_ptbr",
       "title": "Treinamento e Validação do Tokenizador SentencePiece BPE PT-BR (1.024 tokens) no Colab/Drive",
       "environment": "colab_cpu",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "completed",
+      "started_at": "2026-10-24T19:09:09Z",
+      "completed_at": "2026-10-24T19:09:09Z",
       "last_command": null,
-      "artifacts": {},
+      "artifacts": {
+        "tokenizer_dir": "/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024"
+      },
       "metrics": {},
-      "notes": null
+      "notes": "Treinando tokenizador BPE 1024 em PT-BR no Colab."
     },
     {
       "step_id": "step_03_mixer_multitalker",
       "title": "Geração no Colab SSD do Dataset Sintético Sobreposto (70% Multitalker + 30% Limpo, 80ms)",
       "environment": "colab_cpu",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "completed",
+      "started_at": "2026-10-24T19:09:09Z",
+      "completed_at": "2026-10-24T19:09:31Z",
       "last_command": null,
-      "artifacts": {},
+      "artifacts": {
+        "multitalker_train_manifest": "/content/local_dataset/multitalker_train_manifest.json",
+        "multitalker_val_manifest": "/content/local_dataset/multitalker_val_manifest.json"
+      },
       "metrics": {},
-      "notes": null
+      "notes": "Gerando misturas sobrepostas de 80ms no SSD do Colab."
     },
     {
       "step_id": "step_04_pack_and_upload_drive",
       "title": "Empacotamento de /content/local_dataset em ptbr_dataset_16khz.tar.gz no Google Drive",
       "environment": "colab_cpu",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "completed",
+      "started_at": "2026-10-24T19:09:31Z",
+      "completed_at": "2026-10-24T19:12:02Z",
       "last_command": null,
-      "artifacts": {},
+      "artifacts": {
+        "colab_bundle_tar_gz": "/content/drive/MyDrive/parakeet_ptbr/ptbr_dataset_16khz.tar.gz"
+      },
       "metrics": {},
-      "notes": null
+      "notes": "Compactando /content/local_dataset para /content/drive/MyDrive/parakeet_ptbr/ptbr_dataset_16khz.tar.gz no Drive."
     },
     {
       "step_id": "step_05_colab_stage1_warmup",
@@ -121,9 +131,9 @@
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Auditoria completa e configuração 100% Colab+Drive concluídas (step_00). Zero GB de áudio será baixado no Mac local; Steps 01 a 04 rodam direto na VM do Colab via --ensure_colab_dataset.",
-    "next_agent_action": "No Google Colab (Célula 3 do colab_runner.ipynb), executar --ensure_colab_dataset para baixar/normalizar em /content/local_dataset, treinar o tokenizador, gerar misturas 70/30 e salvar o .tar.gz no Google Drive.",
-    "next_exact_command": "python -m src.data_prep --ensure_colab_dataset --dataset fleurs_pt --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr --update_state",
+    "last_agent_summary": "Etapas 01 a 04 concluídas no Colab. Pacote salvo em /content/drive/MyDrive/parakeet_ptbr/ptbr_dataset_16khz.tar.gz.",
+    "next_agent_action": "Iniciar o treinamento da Fase 1 (warmup) na GPU A100 (Célula 4 do colab_runner.ipynb).",
+    "next_exact_command": "python -m src.trainer --stage warmup --manifest /content/local_dataset/clean_train_manifest.json --val_manifest /content/local_dataset/clean_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --update_state",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
       "No ambiente local (Mac), use sempre os binários `.venv/bin/python` e `.venv/bin/pytest`.",
