@@ -52,3 +52,11 @@
 ### [DISC-007] Limite de espaço livre no disco local (~48 GiB disponíveis) (`armazenamento_local` — `2026-10-24T17:10:41Z`)
 - **Problema / Armadilha:** O SSD local da máquina possui ~48 GiB livres (228 GiB total). Baixar múltiplos corpora completos (MLS + CORAA + Common Voice > 500h) sem streaming ou gerar WAVs limpos + misturados + .tar.gz simultaneamente no disco local esgotará o armazenamento.
 - **Solução / Regra Obrigatória:** Para execuções locais na CPU, usar streaming (--max_samples) ou trabalhar com subsets compatíveis com o disco (~10h a ~80h, consumindo 3 a 20 GB) e limpar o cache do Hugging Face, ou executar a preparação massiva diretamente no SSD NVMe da VM do Colab (~160-200 GB livres) salvando o .tar.gz direto no Google Drive.
+
+### [DISC-008] Aviso benigno de conflito requests==2.32.4 no Google Colab (`ambiente_colab` — `2026-10-24T17:43:08Z`)
+- **Problema / Armadilha:** Ao instalar '.[dev,colab]' na Célula 1 do Colab, o pip exibe 'google-colab 1.0.0 requires requests==2.32.4, but you have requests 2.34.2 which is incompatible'.
+- **Solução / Regra Obrigatória:** Este aviso do pip no Colab é benigno (o google.colab.drive já foi montado antes do pip install e o NeMo/HuggingFace operam normalmente com requests>=2.34). Não interrompa o fluxo por causa dele.
+
+### [DISC-009] Verificação OmegaConf.is_config antes de open_dict(asr_model.cfg) (`omegaconf_colab` — `2026-10-24T17:48:58Z`)
+- **Problema / Armadilha:** No Colab (onde omegaconf está instalado), chamar open_dict(asr_model.cfg) quando cfg é um dict Python comum (ex.: em mocks de teste) falha com AttributeError: 'dict' object has no attribute '_get_node_flag'.
+- **Solução / Regra Obrigatória:** Usar OmegaConf.is_config(asr_model.cfg) antes de entrar no bloco open_dict(), mantendo o fallback para dict puro.

@@ -5,25 +5,21 @@
 ## 1. Resumo Executivo
 
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
-- **Status Geral:** 🛑 Aguardando Ação do Usuário
+- **Status Geral:** 🟢 Pronto para Iniciar / Continuar
 - **Etapa Atual:** `step_01_data_prep_clean` — Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD (`colab_cpu`)
-- **Última Atualização (UTC):** `2026-10-24T17:36:34Z`
+- **Última Atualização (UTC):** `2026-10-24T17:48:58Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
-> [!IMPORTANT]
-> Existem impedimentos ativos que exigem ação humana antes do próximo passo de GPU/Rede:
-
-| ID | Etapa | Impedimento | Ação Necessária do Usuário |
-|---|---|---|---|
-| `BLK-COLAB-START` | `step_01_data_prep_clean` | As etapas 01 a 07 rodam na VM do Google Colab conectada ao Google Drive | **Abra colab_runner.ipynb no Google Colab, monte o Google Drive (Célula 1), valide os testes (Célula 2), gere/extraia o dataset no Drive (Célula 3) e dispare o treino na A100 (Célula 4).** |
+- **Nenhum impedimento bloqueante no momento.** Os agentes de IA podem prosseguir com a etapa atual.
+- **Pré-requisitos futuros (Etapas 04 a 07):** Ter conta Google Colab Pro/Pro+ com GPU **NVIDIA A100** e espaço no Google Drive (`/content/drive/MyDrive/parakeet_ptbr`).
 
 ## 3. Progresso das Etapas (Pipeline Stateful)
 
 | # | ID da Etapa | Ambiente | Status | Artefatos / Métricas |
 |---|---|---|---|---|
 | 0 | `step_00_audit_and_contracts` | `local_cpu` | ✅ Concluído | `contract_tests_passed=28`, specs: `specs/00..05_*.md`, schemas: `src/schemas.py`, state_file: `state/pipeline_state.json`, knowledge_base: `state/AGENT_KNOWLEDGE.md` |
-| 1 | `step_01_data_prep_clean` | `colab_cpu` | 🛑 Bloqueado (Ação do Usuário) | — |
+| 1 | `step_01_data_prep_clean` | `colab_cpu` | ⏳ Pendente | — |
 | 2 | `step_02_tokenizer_ptbr` | `colab_cpu` | ⏳ Pendente | — |
 | 3 | `step_03_mixer_multitalker` | `colab_cpu` | ⏳ Pendente | — |
 | 4 | `step_04_pack_and_upload_drive` | `colab_cpu` | ⏳ Pendente | — |

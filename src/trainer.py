@@ -130,12 +130,12 @@ def apply_stage_optimizations_to_nemo_model(
     try:
         from omegaconf import OmegaConf, open_dict
 
-        use_omegaconf = True
+        is_omega_cfg = hasattr(asr_model, "cfg") and OmegaConf.is_config(asr_model.cfg)
     except ImportError:
-        use_omegaconf = False
+        is_omega_cfg = False
 
     model_cfg = raw_cfg.get("model", {})
-    if use_omegaconf and hasattr(asr_model, "cfg"):
+    if is_omega_cfg:
         with open_dict(asr_model.cfg):
             if "joint" in model_cfg and "joint" in asr_model.cfg:
                 asr_model.cfg.joint.fuse_loss_wer = model_cfg["joint"].get("fuse_loss_wer", True)
