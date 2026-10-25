@@ -72,6 +72,8 @@ model:
     lr: 8.0e-5
     betas: [0.9, 0.98]
     weight_decay: 1.0e-3
+    # Spec 04 §8.6: AdamW fundido (o NeMo repassa as chaves extras de optim ao torch.optim.AdamW)
+    fused: true
     sched:
       name: "CosineAnnealing"
       # Spec 04 §8.4: proporcional a trainer.max_steps (calculado pelo src/trainer.py a partir do manifesto)

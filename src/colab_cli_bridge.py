@@ -335,9 +335,31 @@ def cmd_interrupt(state, name: str) -> None:
     emit("ok", interrupted=interrupted)
 
 
+def cmd_restart(state, name: str) -> None:
+    """Reinicia kernels que o interrupt não liberou (syscall que ignora SIGINT); jobs do launch sobrevivem (Spec 06 §5)."""
+    import requests
+
+    s = _load_session(state, name)
+    base = s.url.rstrip("/")
+    resp = requests.get(f"{base}/api/kernels", params=_api_params(s), timeout=HTTP_TIMEOUT_SEC)
+    if resp.status_code in (401, 403, 404):
+        emit("session_lost", reason=f"kernels_api_http_{resp.status_code}")
+    resp.raise_for_status()
+    restarted = []
+    for k in resp.json():
+        if k.get("execution_state") in ("busy", "starting") or k.get("id") == s.kernel_id:
+            # O Jupyter só responde ao restart quando o novo kernel está pronto
+            r = requests.post(f"{base}/api/kernels/{k['id']}/restart", params=_api_params(s), timeout=90.0)
+            restarted.append({"id": k["id"], "state": k.get("execution_state"), "http": r.status_code})
+    emit("ok", restarted=restarted)
+
+
+BRIDGE_MODES = ("session-info", "drive-status", "drive-mount", "interrupt", "restart")
+
+
 def main(argv: Optional[list] = None) -> None:
     parser = argparse.ArgumentParser(description="Ponte não-interativa para o google-colab-cli (Spec 06).")
-    parser.add_argument("mode", choices=["session-info", "drive-status", "drive-mount", "interrupt"])
+    parser.add_argument("mode", choices=BRIDGE_MODES)
     parser.add_argument("--session", "-s", required=True)
     parser.add_argument("--mount-path", default="/content/drive")
     parser.add_argument("--exec-timeout", type=float, default=DRIVE_MOUNT_EXEC_TIMEOUT_SEC)
@@ -354,6 +376,8 @@ def main(argv: Optional[list] = None) -> None:
             cmd_drive_mount(state, args.session, args.mount_path, args.exec_timeout)
         elif args.mode == "interrupt":
             cmd_interrupt(state, args.session)
+        elif args.mode == "restart":
+            cmd_restart(state, args.session)
     except _NeedsUser as nu:
         emit("needs_user", reason=nu.reason, user_action=nu.user_action, auth_url=nu.auth_url)
     except SystemExit:

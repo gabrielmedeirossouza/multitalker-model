@@ -256,6 +256,32 @@ def configure_multitalker_cuts(
     return num_train_cuts
 
 
+def install_fast_nan_grad_guard(asr_model: Any) -> bool:
+    """
+    O checkpoint traz skip_nan_grad=true e o NeMo testa isnan/isinf parâmetro a parâmetro (1 sincronização
+    GPU->CPU por tensor, ~23% do tempo da Fase 2). Mantém a proteção com uma única sincronização: norma total
+    dos gradientes; se não for finita, zera os gradientes como o NeMo faria (Spec 04 §8.6).
+    """
+    if not getattr(asr_model, "_skip_nan_grad", False):
+        return False
+    asr_model._skip_nan_grad = False
+    nemo_on_after_backward = asr_model.on_after_backward
+
+    def on_after_backward() -> None:
+        nemo_on_after_backward()
+        grads = [p.grad for p in asr_model.parameters() if p.grad is not None]
+        if not grads:
+            return
+        import torch
+
+        if not bool(torch.isfinite(torch.nn.utils.get_total_norm(grads))):
+            print("[Spec 04 §8.6] Gradientes com NaN/Inf: passo descartado (gradientes zerados).")
+            asr_model.zero_grad()
+
+    asr_model.on_after_backward = on_after_backward
+    return True
+
+
 def apply_stage_optimizations_to_nemo_model(
     asr_model: Any,
     raw_cfg: Dict[str, Any],
@@ -442,6 +468,7 @@ def run_nemo_training(
                 )
             apply_stage_optimizations_to_nemo_model(asr_model, raw_cfg, stage="warmup")
             rebuild_rnnt_loss_from_cfg(asr_model)
+            install_fast_nan_grad_guard(asr_model)
             asr_model.encoder.freeze()
             frozen_kernel_tensors = freeze_speaker_kernels(asr_model)
             trainable = sum(p.numel() for p in asr_model.parameters() if p.requires_grad)
@@ -459,6 +486,7 @@ def run_nemo_training(
             )
             apply_stage_optimizations_to_nemo_model(asr_model, raw_cfg, stage="multitalker")
             rebuild_rnnt_loss_from_cfg(asr_model)
+            install_fast_nan_grad_guard(asr_model)
             asr_model.encoder.unfreeze()
             print("[Spec 04 - Multitalker] Modelo completo DESCONGELADO com Speaker Kernels e Cache-Aware ativos.")
 

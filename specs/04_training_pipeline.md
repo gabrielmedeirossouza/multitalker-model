@@ -93,6 +93,7 @@ Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` execu
   11. `snapshot_vocab_independent_weights()` / `restore_vocab_independent_weights()` copiam somente a *allowlist* `joint.enc.*`, `joint.pred.*` e `decoder.prediction.dec_rnn.*`, nunca `embed`/`joint_net`, mesmo com shapes iguais (§5.6).
   12. `align_max_steps_to_val_interval()` arredonda `max_steps` para o próximo múltiplo de um `val_check_interval` inteiro e não altera o valor com `val_check_interval: 1.0` (fim de época); com `check_val_every_n_epoch: null`, o YAML define `val_check_interval` inteiro `> 1` (§8.4).
   13. Na Fase 2, `configure_multitalker_cuts()` substitui `manifest_filepath` por `cuts_path` em `train_ds` e `validation_ds` e retorna o número de cuts de treino (§8.2).
+  14. `install_fast_nan_grad_guard()` desliga o `_skip_nan_grad` do NeMo, preserva o `on_after_backward` original e zera os gradientes quando a norma total não é finita; o YAML da Fase 2 define `optim.fused: true` (§8.6).
 
 ---
 
@@ -153,3 +154,12 @@ Primeira execução real da Fase 1 (FLEURS pt_br: 8,9 h, 2.596 amostras, **1.380
 
 - Conclusão: com 8,9 h / 1.380 frases únicas, nenhuma variante desenvolveu ancoragem acústica dentro do orçamento testado. O fator limitante é a **escala/diversidade do corpus**; a Fase 1 só deve ser reexecutada após ampliar os dados (MLS/CORAA/Common Voice) e, então, avaliar ajuste fino com encoder descongelado por mais passos (decisão do usuário, registrada em `USER.md`).
 - §5.6 permanece ativo (inicialização mais informativa; não prejudica). A transferência de vocabulário por string **não** foi adotada: as 666 peças sem correspondência recebem linhas aleatórias cujos logits superam o *blank* calibrado (`val_wer=29,5` antes do treino, por inserções).
+
+### 8.6 Vazão da Fase 2 (Modelo Inteiro Descongelado)
+Primeira execução da Fase 2 (CORAA-MUPE, A100-80GB, lote 16, acumulação 2): ~2,9 lotes/s com GPU entre 38% e 55% e o processo principal a 100% de um núcleo; os *workers* do dataloader ficaram ociosos (3–8%). Perfil com `py-spy` (15 s):
+- **~23% em `ASRModel.on_after_backward`:** o checkpoint traz `skip_nan_grad: true`, e o NeMo testa `isnan(...).any() or isinf(...).any()` tensor a tensor — uma sincronização GPU→CPU por parâmetro, a cada micro-lote. Na Fase 1 (8,9 M parâmetros treináveis) o custo era desprezível; com 622 M treináveis, domina.
+- **~30% no passo do `AdamW`** não fundido.
+
+Regras:
+- `install_fast_nan_grad_guard()` (ambas as fases, após `apply_stage_optimizations_to_nemo_model`) desliga o `_skip_nan_grad` do NeMo e mantém a proteção com **uma única** sincronização: norma total dos gradientes (`torch.nn.utils.get_total_norm`); se não for finita, zera os gradientes, como o NeMo faria.
+- `optim.fused: true` no YAML da Fase 2 (o NeMo repassa as chaves extras de `optim` ao `torch.optim.AdamW`).

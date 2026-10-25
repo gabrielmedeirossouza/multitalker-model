@@ -33,6 +33,7 @@ from src.trainer import (
     compute_max_steps,
     configure_multitalker_cuts,
     freeze_speaker_kernels,
+    install_fast_nan_grad_guard,
     load_and_validate_stage_config,
     preflight_validate_manifest,
     resolve_nemo_checkpoint_path,
@@ -555,3 +556,47 @@ def test_export_val_stride_keeps_one_every_k(tmp_path):
     )
     texts = [json.loads(line)["text"] for line in manifest.read_text(encoding="utf-8").splitlines()]
     assert texts == ["Frase número 0.", "Frase número 4.", "Frase número 8."]
+
+
+def test_install_fast_nan_grad_guard_replaces_per_tensor_check():
+    calls = []
+
+    class FakeModel:
+        _skip_nan_grad = True
+
+        def parameters(self):
+            return []
+
+        def on_after_backward(self):
+            calls.append("nemo")
+
+        def zero_grad(self):
+            calls.append("zero")
+
+    model = FakeModel()
+    assert install_fast_nan_grad_guard(model) is True
+    assert model._skip_nan_grad is False
+    model.on_after_backward()
+    assert calls == ["nemo"]  # hook original preservado; sem gradientes, nada a zerar
+    assert install_fast_nan_grad_guard(model) is False
+
+
+def test_fast_nan_grad_guard_zeroes_non_finite_gradients():
+    torch = pytest.importorskip("torch")
+    model = torch.nn.Linear(4, 2)
+    model._skip_nan_grad = True
+    model.on_after_backward = lambda: None
+    assert install_fast_nan_grad_guard(model) is True
+
+    model(torch.ones(3, 4)).sum().backward()
+    model.on_after_backward()
+    assert model.weight.grad is not None and torch.isfinite(model.weight.grad).all()
+
+    model.weight.grad[0, 0] = float("nan")
+    model.on_after_backward()
+    assert model.weight.grad is None or not model.weight.grad.any()
+
+
+def test_multitalker_config_uses_fused_adamw():
+    raw_cfg, _ = load_and_validate_stage_config("multitalker")
+    assert raw_cfg["model"]["optim"]["fused"] is True

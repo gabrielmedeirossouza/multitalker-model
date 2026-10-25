@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.colab_cli_bridge import EXIT_CODES as BRIDGE_EXIT_CODES
+from src.colab_cli_bridge import BRIDGE_MODES, EXIT_CODES as BRIDGE_EXIT_CODES
 from src.colab_guard import (
     DONE_SENTINEL,
     JOB_RESULT_PREFIX,
@@ -20,6 +20,7 @@ from src.colab_guard import (
     build_job_kill_code,
     build_job_status_code,
     build_launch_code,
+    build_parser,
     classify_run,
     detect_interaction_request,
     detect_session_lost,
@@ -240,3 +241,9 @@ def test_remote_background_job_lifecycle(tmp_path: Path):
     st_after = run_snippet(build_job_status_code("long", job_dir=job_dir))
     assert st_after["job_state"] == "failed"
     assert st_after["exit_code"] == 143
+
+
+def test_restart_subcommand_and_bridge_mode():
+    """Spec 06 §5.6: restart libera kernel preso em syscall que ignora SIGINT (ex.: Drive FUSE)."""
+    assert build_parser().parse_args(["restart"]).cmd == "restart"
+    assert {"interrupt", "restart"} <= set(BRIDGE_MODES)

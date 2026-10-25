@@ -71,6 +71,10 @@ Campos mínimos: `status`, `exit_code`, `command`, `elapsed_sec`, `reason`, `use
 5. Código remoto enviado por `exec` recebe um **sentinela** final (`__COLAB_GUARD_DONE__`); a ausência do sentinela
    com processo encerrado caracteriza `remote_error` (o `colab exec` sai com `0` mesmo com traceback remoto).
 6. Em `timeout`/`idle_timeout` de `exec`, o guarda chama `interrupt` na ponte para liberar o kernel.
+   Se o kernel continuar `busy` (ex.: `exec` preso numa leitura do Drive FUSE congestionado, syscall que ignora
+   `SIGINT`), `python -m src.colab_guard restart` reinicia o kernel via `POST /api/kernels/{id}/restart` (limite de
+   `120 s`). Jobs do `launch` rodam em sessão própria (`start_new_session=True`) e sobrevivem, assim como a montagem
+   do Drive (FUSE do sistema); perdem-se apenas as variáveis do kernel.
 7. Em `needs_user`, o guarda registra automaticamente `add_blocker(id="blocker_colab_<reason>")` na etapa atual
    (`--step`, padrão `current_step_id`), a menos que `--no-blocker` seja passado. `--open-browser` abre a URL no Mac.
 
@@ -96,7 +100,10 @@ Campos mínimos: `status`, `exit_code`, `command`, `elapsed_sec`, `reason`, `use
   (exit 0), `remote_error` (exit ≠ 0 ou processo morto sem exit code) ou `job_not_found`. Padrões de interação
   humana no log retornam `needs_user`.
 - `job-kill --job <nome>` encerra o grupo de processos do job.
-- Diretório padrão: `/content/jobs`; para treinos, preferir `/content/drive/MyDrive/parakeet_ptbr/jobs` (sobrevive à VM).
+- Diretório padrão: `/content/jobs`, também para treinos. Um log em `/content/drive/MyDrive/parakeet_ptbr/jobs` sobrevive à
+  VM, mas o stdout do job passa a bloquear junto com o DriveFS quando ele congestiona (ex.: `mv` sobre um `.tar.gz` grande
+  travou o FUSE por ~25 min e parou o trainer). Os checkpoints continuam no Drive (`Spec 04 §4`); escritas grandes no
+  Drive não devem coincidir com treino, e nunca se sobrescreve arquivo grande no Drive com `mv`.
 - O agente monitora jobs com **timers** (`schedule`, ex.: a cada 10–15 min), nunca com `exec` bloqueante.
 
 ---
@@ -123,3 +130,4 @@ Campos mínimos: `status`, `exit_code`, `command`, `elapsed_sec`, `reason`, `use
 4. `needs_user` registra o bloqueio no `PipelineState` e regenera `USER.md`.
 5. Timeouts síncronos acima de `MAX_SYNC_EXEC_TIMEOUT_SEC` são rejeitados.
 6. Os códigos remotos gerados (`launch`, `job-status`, `job-kill`) compilam como Python válido.
+7. O guarda aceita o subcomando `restart` e a ponte expõe o modo `restart` (`BRIDGE_MODES`).

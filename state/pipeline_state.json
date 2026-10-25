@@ -1,9 +1,9 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-25T01:46:37Z",
+  "updated_at": "2026-10-25T03:44:32Z",
   "overall_status": "in_progress",
-  "current_step_id": "step_05_colab_stage1_warmup",
+  "current_step_id": "step_06_colab_stage2_multitalker",
   "steps": [
     {
       "step_id": "step_00_audit_and_contracts",
@@ -100,15 +100,24 @@
       "step_id": "step_05_colab_stage1_warmup",
       "title": "Treinamento Fase 1 (Warm-up: Encoder Congelado, Decoder/Joint PT-BR) na GPU A100",
       "environment": "colab_a100",
-      "status": "in_progress",
+      "status": "completed",
       "started_at": "2026-10-25T01:14:10Z",
-      "completed_at": null,
+      "completed_at": "2026-10-25T03:34:49Z",
       "last_command": "colab_guard launch --job warmup_mupe (setup + extração + trainer --stage warmup em exp_coraa_mupe_warmup; A100-SXM4-80GB; log em /content/drive/MyDrive/parakeet_ptbr/jobs/warmup_mupe.log)",
-      "artifacts": {},
+      "artifacts": {
+        "warmup_checkpoint_dir": "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup",
+        "warmup_nemo": "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo"
+      },
       "metrics": {
         "val_wer_step_4000": "0.7439",
-        "steps_per_sec": "6.6",
-        "max_steps": "24000"
+        "steps_per_sec": "6.5",
+        "max_steps": "24000",
+        "val_wer_step_8000": "0.6720",
+        "val_wer_step_12000": "0.6411",
+        "multitalker_train_lines": "142866",
+        "multitalker_val_lines": "1000",
+        "train_mixtures": "50004",
+        "val_wer_final": "0.6114"
       },
       "notes": "Warmup v1 (Joint/Decoder totalmente reinicializados) terminou com val_wer=0.9931 por atalho de LM (DISC-020). Checkpoints movidos para /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup_failed_lmshortcut."
     },
@@ -116,12 +125,16 @@
       "step_id": "step_06_colab_stage2_multitalker",
       "title": "Treinamento Fase 2 (Multitalker Cache-Aware + Speaker Kernels) na GPU A100",
       "environment": "colab_a100",
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-10-25T03:35:02Z",
       "completed_at": null,
-      "last_command": null,
+      "last_command": "colab_guard launch --job multitalker_mupe --job-dir /content/jobs (cwd /content/mt-prep; trainer --stage multitalker em exp_coraa_mupe_multitalker)",
       "artifacts": {},
-      "metrics": {},
+      "metrics": {
+        "batches_per_sec_v1": "2.93",
+        "gpu_util_v1": "0.5",
+        "max_steps": "53628"
+      },
       "notes": null
     },
     {
@@ -176,9 +189,9 @@
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Warmup CORAA-MUPE na A100 (val_wer=0,7439 no passo 4.000). Encontrado e corrigido localmente o bug de colisão de nomes das misturas train/val e o desvio 70/30 do CutSet; misturas do pacote atual precisam ser regeneradas antes da Fase 2.",
-    "next_agent_action": "Após o push do commit com a correção (Spec 02 §3.6/§3.7), lançar na A100 o job mix_mupe a partir de um clone separado (/content/mt-prep, para não mexer no repo do warmup em execução): apagar wavs/mix_* e multitalker_*_manifest.json antigos, gerar 50.000 misturas de treino (clean_ratio 0.30) e 500 de validação, e reempacotar /content/local_dataset em .tar.gz.tmp no Drive (pack_dataset_for_colab_ssd, sem reescrever manifestos lidos pelo warmup) antes de renomear. Ao fim do warmup (~02:40 UTC), iniciar a step_06.",
-    "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job warmup_mupe --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs --tail 40",
+    "last_agent_summary": "Fase 2 iniciada às 03:35 UTC (142.866 cuts de treino / 1.000 de validação, max_steps=53.628, 622 M treináveis) a ~2,9 lotes/s (~10 h). Perfil mostrou gargalo de CPU (skip_nan_grad por tensor + AdamW não fundido); correção implementada localmente e testada (69 testes + 1 com torch no Colab).",
+    "next_agent_action": "Após o push das otimizações de vazão (Spec 04 §8.6), encerrar o job multitalker_mupe (pouco progresso, ~2,9 lotes/s) e relançá-lo de /content/mt-prep com git pull; comparar lotes/s e utilização da GPU. Os checkpoints da Fase 2 só começam no fim da 1ª época.",
+    "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job multitalker_mupe --job-dir /content/jobs --tail 30",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
       "No ambiente local (Mac), use sempre os binários `.venv/bin/python` e `.venv/bin/pytest`.",
@@ -406,6 +419,30 @@
       "title": "Misturas de validação sobrescreviam as de treino (mesmo mix_<idx>.wav); CutSet com 1 cut por par quebrava o 70/30",
       "problem": "data_prep chama o mixer de treino e de validação com o mesmo output_dir e o mixer nomeava os WAVs mix_<idx:06d>.wav: as 200 misturas de validação sobrescreveram mix_000000..000199 do treino (no CORAA-MUPE, mix_000000.wav tem 3,72 s mas o manifesto de treino diz 5,79 s), deixando texto/máscaras sem relação com o áudio e vazando validação no treino. A Fase 1 não é afetada (só usa clean_*). Além disso, o CutSet com 1 cut por par espelhado (DISC-026) mudava a composição por amostra de 70/30 para ~54/46.",
       "solution": "WAVs nomeados mix_<stem do manifesto de saída>_<idx:06d>.wav (Spec 02 §3.6) e teste de regressão com treino+val no mesmo diretório. export_lhotse_cuts() emite 1 cut por linha do manifesto (o par vira 2 cuts com as 2 supervisions; o dataset sorteia o alvo em cada leitura), preservando 70/30 e max_steps. Padrões do data_prep: 50.000 misturas de treino e 500 de validação. As misturas do pacote coraa_mupe atual (1.000/200, nomes antigos) devem ser apagadas e regeneradas antes da step_06."
+    },
+    {
+      "id": "DISC-028",
+      "timestamp": "2026-10-25T02:09:47Z",
+      "category": "dados_multitalker",
+      "title": "Mixer single-thread a ~11 misturas/s; gerar em shards paralelos",
+      "problem": "generate_mixed_dataset_from_manifest roda em 1 processo (~11 misturas/s na VM A100): 50.000 misturas levariam ~73 min. Com o warmup rodando ao lado, 7 processos de mixer reduziram o warmup de ~6,5 para ~4,6 passos/s durante ~15 min.",
+      "solution": "Rodar N processos de src.mixer com --output_manifest mt_train_part<k>.json e --seed 42+k (os nomes de WAV por stem do manifesto não colidem) e concatenar as partes em multitalker_train_manifest.json: os pares espelhados continuam consecutivos e a proporção 70/30 vale por parte. 6 shards + validação: ~58 misturas/s (50.004 misturas em ~15 min). Script usado: /content/mix_par.sh no job mix_mupe_par."
+    },
+    {
+      "id": "DISC-029",
+      "timestamp": "2026-10-25T03:34:49Z",
+      "category": "colab_drive",
+      "title": "mv sobre arquivo grande no Drive travou o DriveFS ~25 min e bloqueou o trainer pelo stdout",
+      "problem": "O reempacotamento gravou ptbr_dataset_16khz.tar.gz.tmp (35,7 GB) e fez mv sobre o .tar.gz antigo (27 GB, nunca baixado nesta VM). O DriveFS registrou SWAPPED_ITEM_NOT_FULLY_DOWNLOADED, um PushTask ficou 'Opening content cache streams' por ~25 min com active_uploads=0, e toda operação no FUSE bloqueou: job-status (lê o log no Drive), o kernel (preso em fuse_simple_request, interrupt não libera) e o trainer, cujo stdout e checkpoints vão para o Drive (o save do .ckpt final levou 22 min). Depois do treino, o processo do trainer ficou pendurado na saída (34 threads em futex_wait) mesmo com .nemo e complete_step concluídos.",
+      "solution": "Nunca sobrescrever arquivo grande no Drive com mv: apagar o antigo antes, ou gravar com nome novo. Reempacotamento e escritas grandes no Drive não devem coincidir com saves de checkpoint. Logs de treino em job-dir local (/content/jobs), checkpoints no Drive. Kernel preso em syscall do FUSE: python -m src.colab_guard restart (Spec 06 §5.6; jobs sobrevivem). Diagnóstico sem tocar o Drive: /proc/<pid>/wchan, /proc/<pid do drive>/io, /proc/net/dev e ~/.config/Google/DriveFS/Logs/drive_fs.txt. Trainer pendurado após .nemo + estado 'completed': conferir o .nemo (tarfile) e usar job-kill."
+    },
+    {
+      "id": "DISC-030",
+      "timestamp": "2026-10-25T03:44:32Z",
+      "category": "nemo_trainer",
+      "title": "Fase 2 limitada pela CPU: checagem skip_nan_grad por tensor (~23%) e AdamW não fundido (~30%)",
+      "problem": "Fase 2 (622 M parâmetros treináveis, lote 16, acumulação 2) a ~2,9 lotes/s (~10 h para 12 épocas), GPU 38-55% e processo principal a 100% de um núcleo, workers do dataloader ociosos. py-spy: ~23% em ASRModel.on_after_backward, porque o checkpoint traz skip_nan_grad=true e o NeMo faz isnan/isinf .any() por parâmetro (1 sync GPU->CPU por tensor por micro-lote), e ~30% no passo do AdamW não fundido. Na Fase 1 (8,9 M treináveis) o custo era desprezível.",
+      "solution": "install_fast_nan_grad_guard() (Spec 04 §8.6) desliga _skip_nan_grad e zera os gradientes se torch.nn.utils.get_total_norm não for finita (1 sync); optim.fused: true no a100_multitalker.yaml (o NeMo repassa chaves extras ao torch.optim.AdamW). Validado na VM: torch 2.11 tem get_total_norm e AdamW(fused=True) funciona. Para diagnosticar vazão: py-spy record --pid <trainer> --duration 15 --format raw + contagem de frames."
     }
   ]
 }

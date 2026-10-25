@@ -748,6 +748,9 @@ class ColabGuard:
     def interrupt(self) -> ColabGuardOutcome:
         return self._finalize(self._bridge("interrupt", timeout=60.0))
 
+    def restart(self) -> ColabGuardOutcome:
+        return self._finalize(self._bridge("restart", timeout=120.0))
+
     def preflight(self) -> ColabGuardOutcome:
         start = time.monotonic()
         checks: Dict[str, object] = {}
@@ -880,6 +883,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_drive = sub.add_parser("drive", parents=[common], help="Monta o Drive sem bloquear (exit 10 se exigir autorização).")
     p_drive.add_argument("--mount-path", default="/content/drive")
     sub.add_parser("interrupt", parents=[common], help="Interrompe kernels ocupados.")
+    sub.add_parser("restart", parents=[common], help="Reinicia o kernel quando o interrupt não o libera.")
 
     p_exec = sub.add_parser("exec", parents=[common], help="Executa código Python no kernel com limite de tempo.")
     g = p_exec.add_mutually_exclusive_group(required=True)
@@ -927,6 +931,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             outcome = guard.drive(mount_path=args.mount_path)
         elif args.cmd == "interrupt":
             outcome = guard.interrupt()
+        elif args.cmd == "restart":
+            outcome = guard.restart()
         elif args.cmd == "exec":
             code = Path(args.file).read_text(encoding="utf-8") if args.file else args.code
             outcome = guard.exec_code(
