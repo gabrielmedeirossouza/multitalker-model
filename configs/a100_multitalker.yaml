@@ -30,7 +30,8 @@ model:
     manifest_filepath: "/content/local_dataset/multitalker_train_manifest.json"
     text_field: "text"
     sample_rate: 16000
-    batch_size: 16
+    # Spec 04 §8.6: lote 32 sem acumulação (mesmo lote efetivo de 16 x 2) enche a A100; com 16 o treino fica preso no lançamento de kernels
+    batch_size: 32
     shuffle: true
     num_workers: 4
     pin_memory: true
@@ -85,7 +86,7 @@ trainer:
   accelerator: "gpu"
   max_epochs: 12
   precision: "bf16-mixed"
-  accumulate_grad_batches: 2
+  accumulate_grad_batches: 1
   gradient_clip_val: 1.0
   log_every_n_steps: 50
   # Dataloader Lhotse não tem len(): o Lightning só aceita val_check_interval 1.0 ou int (lotes, com check_val_every_n_epoch: null)

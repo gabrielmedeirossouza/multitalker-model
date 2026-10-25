@@ -637,6 +637,9 @@ def test_split_fused_gradient_clipping_moves_clip_to_guard():
     assert warmup_cfg["trainer"]["gradient_clip_val"] == 1.0
 
 
-def test_multitalker_config_uses_fused_adamw():
+def test_multitalker_config_uses_fused_adamw_and_batch_32():
     raw_cfg, _ = load_and_validate_stage_config("multitalker")
     assert raw_cfg["model"]["optim"]["fused"] is True
+    # Spec 04 §8.6: lote efetivo 32 em um único micro-lote (16 x 2 deixava a A100 presa no lançamento de kernels)
+    assert raw_cfg["model"]["train_ds"]["batch_size"] == 32
+    assert raw_cfg["trainer"]["accumulate_grad_batches"] == 1

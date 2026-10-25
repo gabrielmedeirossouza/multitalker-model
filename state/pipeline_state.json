@@ -1,7 +1,7 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-25T04:40:19Z",
+  "updated_at": "2026-10-25T05:45:01Z",
   "overall_status": "in_progress",
   "current_step_id": "step_06_colab_stage2_multitalker",
   "steps": [
@@ -134,7 +134,11 @@
         "batches_per_sec_v1": "2.93",
         "gpu_util_v1": "0.5",
         "max_steps": "53628",
-        "batches_per_sec_v2": "3.47"
+        "batches_per_sec_v2": "3.47",
+        "val_wer_epoch_0": "0.5786",
+        "batches_per_sec_fused": "4.0",
+        "val_wer_step_8932": "0.5258",
+        "samples_per_sec_b32": "117"
       },
       "notes": null
     },
@@ -190,8 +194,8 @@
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Fase 2 em andamento na A100 (142.866 cuts, max_steps=53.628). Otimizações de vazão: guard de NaN com 1 sync (+15%: 3,03 -> 3,47 lotes/s); AdamW fused pendente de push (Lightning exige recorte manual).",
-    "next_agent_action": "Job multitalker_mupe rodando desde ~04:05 UTC com /content/a100_multitalker_nofused.yaml (sem fused, guard de NaN ativo), ~3,47 lotes/s (~8,6 h). Após o push do guard em on_before_optimizer_step + split_fused_gradient_clipping, esperar o checkpoint do fim da época 0 (~04:50 UTC), dar job-kill e relançar sem --config (YAML do repo, fused) para retomar do -last.ckpt (resume_if_exists).",
+    "last_agent_summary": "Fase 2: val_wer 0,5786 (passo 4.466) -> 0,5258 (passo 8.932) em misturas por locutor-alvo. Vazão de 48 -> 117 amostras/s (guard de gradientes + lote 32 sem acumulação); término previsto ~09:15 UTC.",
+    "next_agent_action": "Acompanhar o job multitalker_mupe (lote 32, fused, guard; retomado às 05:34 UTC no passo 8.932, val_wer=0,5258) até max_steps=53.628 (~09:15 UTC); validação a cada ~20 min. Em caso de queda, relançar de /content/mt-prep com o YAML do repo (já lote 32) e --max_steps 53628 para retomar do -last.ckpt. Depois rodar a step_07 com src.evaluator (decodificação por locutor).",
     "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job multitalker_mupe --job-dir /content/jobs --tail 30",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
@@ -468,6 +472,14 @@
       "title": "transcribe() do modelo multitalker ignora o locutor-alvo; Step 07 decodifica por locutor com speaker_to_target",
       "problem": "EncDecMultiTalkerRNNTBPEModel.transcribe() monta o LhotseSpeechToTextSpkBpeDataset com inference_mode=True: spk_targets chega None e o speaker kernel usa máscara de alvo toda em 1 (fundo em 0), tratando a mistura inteira como fala do alvo. O src/evaluator.py antigo comparava essa saída com o texto de cada alvo, o que não mede nada (pendência citada na DISC-026).",
       "solution": "src/evaluator.py: unique_eval_cuts() (conversão da Spec 02 §3.7 sem a cópia do par) + decode_per_target_speaker(): para cada cut, máscaras do speaker_to_target() do NeMo, set_speaker_targets(alvo, demais), forward e decoding.rnnt_decoder_predictions_tensor, uma vez por locutor; fala limpa pelo mesmo caminho. Relatório com WER normalizado (sem caixa/pontuação) e --max_lines para teste de fumaça (Spec 04 §6). Validado na VM com o .nemo do warmup (12 linhas): as hipóteses nas misturas seguem a frase do locutor-alvo."
+    },
+    {
+      "id": "DISC-034",
+      "timestamp": "2026-10-25T05:45:01Z",
+      "category": "nemo_trainer",
+      "title": "Fase 2 presa no lançamento de kernels com lote 16; lote 32 sem acumulação = 1,84x",
+      "problem": "Depois do guard de gradientes (DISC-030/031), a Fase 2 ficou em ~4,0 lotes/s de 16 (64 amostras/s), GPU 36-66%; o AdamW fused não trouxe ganho mensurável. py-spy: ~44% do tempo do processo principal sem frame Python (lançamento/espera de kernels): com lote 16, as operações por camada do FastConformer são pequenas para a A100.",
+      "solution": "Lote 32 com accumulate_grad_batches 1 (mesmo lote efetivo e LR): 3,67 lotes/s = 117 amostras/s (1,84x), GPU 97%, 48,7 GB de 80 GB, sem OOM com bucketing aleatório. Época da Fase 2 de ~38 para ~20 min. Ao trocar o lote numa retomada, passar --max_steps igual ao da execução original (53.628) para não mexer no agendamento do LR (Spec 04 §8.6)."
     }
   ]
 }

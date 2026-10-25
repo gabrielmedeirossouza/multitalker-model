@@ -7,7 +7,7 @@
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
 - **Status Geral:** 🔄 Em Execução por Agente
 - **Etapa Atual:** `step_06_colab_stage2_multitalker` — Treinamento Fase 2 (Multitalker Cache-Aware + Speaker Kernels) na GPU A100 (`colab_a100`)
-- **Última Atualização (UTC):** `2026-10-25T04:40:19Z`
+- **Última Atualização (UTC):** `2026-10-25T05:45:01Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
@@ -24,13 +24,13 @@
 | 3 | `step_03_mixer_multitalker` | `colab_cpu` | ✅ Concluído | `train_mixtures=1000`, `train_lines=2857`, `val_mixtures=200`, `val_lines=400`, multitalker_train_manifest: `/content/local_dataset/multitalker_train_manifest.json`, multitalker_val_manifest: `/content/local_dataset/multitalker_val_manifest.json` |
 | 4 | `step_04_pack_and_upload_drive` | `colab_cpu` | ✅ Concluído | `bundle_size_gb=26`, colab_bundle_tar_gz: `/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/ptbr_dataset_16khz.tar.gz` |
 | 5 | `step_05_colab_stage1_warmup` | `colab_a100` | ✅ Concluído | `val_wer_step_4000=0.7439`, `steps_per_sec=6.5`, `max_steps=24000`, `val_wer_step_8000=0.6720`, `val_wer_step_12000=0.6411`, `multitalker_train_lines=142866`, `multitalker_val_lines=1000`, `train_mixtures=50004`, `val_wer_final=0.6114`, warmup_checkpoint_dir: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup`, warmup_nemo: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo` |
-| 6 | `step_06_colab_stage2_multitalker` | `colab_a100` | 🔄 Em Execução | `batches_per_sec_v1=2.93`, `gpu_util_v1=0.5`, `max_steps=53628`, `batches_per_sec_v2=3.47` |
+| 6 | `step_06_colab_stage2_multitalker` | `colab_a100` | 🔄 Em Execução | `batches_per_sec_v1=2.93`, `gpu_util_v1=0.5`, `max_steps=53628`, `batches_per_sec_v2=3.47`, `val_wer_epoch_0=0.5786`, `batches_per_sec_fused=4.0`, `val_wer_step_8932=0.5258`, `samples_per_sec_b32=117` |
 | 7 | `step_07_eval_and_export` | `colab_a100` | ⏳ Pendente | — |
 
 ## 4. Handover para o Próximo Agente de IA
 
-- **Resumo da Última Sessão:** Fase 2 em andamento na A100 (142.866 cuts, max_steps=53.628). Otimizações de vazão: guard de NaN com 1 sync (+15%: 3,03 -> 3,47 lotes/s); AdamW fused pendente de push (Lightning exige recorte manual).
-- **Próxima Ação do Agente:** Job multitalker_mupe rodando desde ~04:05 UTC com /content/a100_multitalker_nofused.yaml (sem fused, guard de NaN ativo), ~3,47 lotes/s (~8,6 h). Após o push do guard em on_before_optimizer_step + split_fused_gradient_clipping, esperar o checkpoint do fim da época 0 (~04:50 UTC), dar job-kill e relançar sem --config (YAML do repo, fused) para retomar do -last.ckpt (resume_if_exists).
+- **Resumo da Última Sessão:** Fase 2: val_wer 0,5786 (passo 4.466) -> 0,5258 (passo 8.932) em misturas por locutor-alvo. Vazão de 48 -> 117 amostras/s (guard de gradientes + lote 32 sem acumulação); término previsto ~09:15 UTC.
+- **Próxima Ação do Agente:** Acompanhar o job multitalker_mupe (lote 32, fused, guard; retomado às 05:34 UTC no passo 8.932, val_wer=0,5258) até max_steps=53.628 (~09:15 UTC); validação a cada ~20 min. Em caso de queda, relançar de /content/mt-prep com o YAML do repo (já lote 32) e --max_steps 53628 para retomar do -last.ckpt. Depois rodar a step_07 com src.evaluator (decodificação por locutor).
 - **Comando Exato para o Próximo Agente:**
   ```bash
   .venv/bin/python -m src.colab_guard job-status --job multitalker_mupe --job-dir /content/jobs --tail 30
