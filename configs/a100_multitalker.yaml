@@ -23,8 +23,8 @@ model:
       enabled: true
       inject_layer_idx: 0
 
-  # Spec 04 §8.2: Lhotse obrigatório. PENDÊNCIA step_06: o LhotseSpeechToTextSpkBpeDataset ignora spk_targets do
-  # manifesto e deriva as máscaras das supervisions do Cut (uma por locutor) — o mixer (Spec 02) precisa emitir cuts Lhotse.
+  # Spec 04 §8.2: Lhotse obrigatório. O LhotseSpeechToTextSpkBpeDataset ignora spk_targets do manifesto e deriva as
+  # máscaras das supervisions do Cut: o src/trainer.py troca manifest_filepath pelo cuts_path derivado (Spec 02 §3.7).
   train_ds:
     use_lhotse: true
     manifest_filepath: "/content/local_dataset/multitalker_train_manifest.json"

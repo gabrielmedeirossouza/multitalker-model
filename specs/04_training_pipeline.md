@@ -92,6 +92,7 @@ Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` execu
   10. Na Fase 1, `freeze_speaker_kernels()` desabilita gradientes de `spk_kernels` e `bg_spk_kernels` (§5.5).
   11. `snapshot_vocab_independent_weights()` / `restore_vocab_independent_weights()` copiam somente a *allowlist* `joint.enc.*`, `joint.pred.*` e `decoder.prediction.dec_rnn.*`, nunca `embed`/`joint_net`, mesmo com shapes iguais (§5.6).
   12. `align_max_steps_to_val_interval()` arredonda `max_steps` para o próximo múltiplo de um `val_check_interval` inteiro e não altera o valor com `val_check_interval: 1.0` (fim de época); com `check_val_every_n_epoch: null`, o YAML define `val_check_interval` inteiro `> 1` (§8.4).
+  13. Na Fase 2, `configure_multitalker_cuts()` substitui `manifest_filepath` por `cuts_path` em `train_ds` e `validation_ds` e retorna o número de cuts de treino (§8.2).
 
 ---
 
@@ -108,7 +109,8 @@ Verificado na VM A100 com `nemo_toolkit==3.0.0` (PyPI) e o checkpoint `multitalk
 - `EncDecMultiTalkerRNNTBPEModel._setup_dataloader_from_config` **só** cria dataloader quando `use_lhotse: true` (caso contrário retorna `None` silenciosamente). Logo `train_ds.use_lhotse` e `validation_ds.use_lhotse` **DEVEM** ser `true`.
 - O dataset `LhotseSpeechToTextSpkBpeDataset` **ignora** os campos `spk_targets`/`bg_spk_targets` do manifesto: as máscaras são derivadas das *supervisions* do `Cut` Lhotse (`speaker_to_target`), e o locutor-alvo é sorteado por amostra.
   - Manifesto NeMo JSON (não-tarred) → `MonoCut` com **1 supervision** cobrindo toda a duração → `spk_targets` = 1 e `bg_spk_targets` = 0. **Compatível com a Fase 1 (fala limpa).**
-  - **Pendência da Fase 2 (`step_06`):** misturas sobrepostas exigem *cuts* Lhotse com uma supervision por locutor (`speaker`, `start`, `duration`, `text`) ou `rttm_filepath` por cut; o manifesto espelhado atual (Spec 02) seria lido como fala única do locutor-alvo em toda a duração.
+  - **Fase 2 (`step_06`):** misturas sobrepostas exigem *cuts* Lhotse com uma supervision por locutor; o manifesto espelhado (Spec 02) seria lido como fala única do alvo em toda a duração. Por isso `configure_multitalker_cuts()` converte os manifestos de treino e validação com `export_lhotse_cuts()` (Spec 02 §3.7), define `cuts_path` e remove `manifest_filepath` de `train_ds`/`validation_ds`. O `max_steps` (§8.4) usa o número de cuts de treino (cada par espelhado conta uma vez).
+  - Como o alvo é sorteado com `random.choice` a cada leitura, o `val_wer` da Fase 2 oscila um pouco entre validações (cada mistura pode trocar de alvo): compare tendências, não diferenças pequenas entre duas validações.
 - Campos do `train_ds`/`validation_ds` não reconhecidos pelo `LhotseDataLoadingConfig` são descartados com aviso (ex.: `bucketing_strategy`, `return_speaker_targets`); o dataset ainda lê `num_speakers`, `num_sample_per_mel_frame` (160) e `num_mel_frame_per_asr_frame` (8) do mesmo config.
 - `text_field: "text"` (campo do nosso manifesto; o checkpoint original usa `answer`).
 - Manifesto NeMo **não-tarred** não é repetido (`.repeat()` só ocorre em dados tarred/`input_cfg`), então épocas terminam normalmente.

@@ -94,6 +94,71 @@ class SingleSpeakerManifestEntry(MultitalkerManifestEntry):
         )
 
 
+class SpeakerSupervision(BaseModel):
+    """Intervalo de fala de um locutor dentro de um cut Lhotse da Fase 2 (Spec 02 §3.7)."""
+
+    speaker: str = Field(..., min_length=1)
+    start: float = Field(..., ge=0.0)
+    duration: float = Field(..., gt=0.0)
+    text: str = Field(..., min_length=1)
+
+
+class MultitalkerCut(BaseModel):
+    """MonoCut Lhotse com uma supervision por locutor, lido pelo LhotseSpeechToTextSpkBpeDataset (Spec 04 §8.2)."""
+
+    id: str = Field(..., min_length=1)
+    audio_filepath: str = Field(..., min_length=1)
+    duration: float = Field(..., ge=0.5, le=30.0)
+    supervisions: List[SpeakerSupervision] = Field(..., min_length=1, max_length=2)
+
+    @model_validator(mode="after")
+    def check_supervisions(self) -> "MultitalkerCut":
+        speakers = [sup.speaker for sup in self.supervisions]
+        if len(set(speakers)) != len(speakers):
+            raise ValueError(f"Rótulos de locutor repetidos no cut {self.id}: {speakers} (Spec 02 §3.7).")
+        for sup in self.supervisions:
+            # Mesma tolerância do SupervisionSet.find() do Lhotse, que descarta supervisions além do cut
+            if sup.start + sup.duration > self.duration + 1e-3:
+                raise ValueError(
+                    f"Supervision de {sup.speaker} termina em {sup.start + sup.duration:.4f}s, "
+                    f"após a duração do cut {self.id} ({self.duration}s)."
+                )
+        return self
+
+    def to_lhotse_dict(self, language: str = "pt") -> Dict[str, object]:
+        """Serializa no formato de CutSet.from_file() (uma linha JSONL por cut)."""
+        return {
+            "id": self.id,
+            "start": 0.0,
+            "duration": self.duration,
+            "channel": 0,
+            "supervisions": [
+                {
+                    "id": f"{self.id}-{idx}",
+                    "recording_id": self.id,
+                    "start": sup.start,
+                    "duration": sup.duration,
+                    "channel": 0,
+                    "text": sup.text,
+                    "language": language,
+                    "speaker": sup.speaker,
+                }
+                for idx, sup in enumerate(self.supervisions)
+            ],
+            "recording": {
+                "id": self.id,
+                "sources": [{"type": "file", "channels": [0], "source": self.audio_filepath}],
+                "sampling_rate": REQUIRED_SAMPLE_RATE,
+                "num_samples": int(round(self.duration * REQUIRED_SAMPLE_RATE)),
+                "duration": self.duration,
+                "channel_ids": [0],
+            },
+            # speaker_to_target() do NeMo chama cut.custom.get('rttm_filepath'): custom não pode ser None
+            "custom": {},
+            "type": "MonoCut",
+        }
+
+
 class HFDatasetSource(BaseModel):
     """Contrato de uma fonte de fala single-speaker PT-BR no Hugging Face (Spec 01 §2.1)."""
 

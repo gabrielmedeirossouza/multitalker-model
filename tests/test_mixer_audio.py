@@ -1,11 +1,14 @@
 """Testes de contrato para o simulador de mistura sintética e máscaras de 80ms (Spec 02)."""
 
+import json
+
 import numpy as np
 import pytest
 
 import soundfile as sf
 from src.mixer import (
     ensure_mono_16khz,
+    export_lhotse_cuts,
     generate_mixed_dataset_from_manifest,
     mix_two_speakers,
     prevent_clipping,
@@ -141,3 +144,75 @@ def test_generate_mixed_dataset_enforces_distinct_speakers_and_clean_ratio(tmp_p
     )
     assert total_resumed == 20
     assert len([l for l in out_manifest.read_text(encoding="utf-8").splitlines() if l.strip()]) == 20
+
+
+def _mixed_pair_entries(tmp_path, speaker_id_a="spk_A", speaker_id_b="spk_B"):
+    # A ocupa 0-2.4s; B entra em 1.0s (frame 12 = 0.96-1.04s) e termina em 3.0s
+    _, entries = mix_two_speakers(
+        audio_a=_generate_sine_voice(2.4, freq_hz=200.0, amp=0.5),
+        text_a="Bom dia pessoal.",
+        audio_b=_generate_sine_voice(2.0, freq_hz=350.0, amp=0.5),
+        text_b="O relatório já saiu?",
+        output_wav_path=str(tmp_path / "wavs" / "mix_000000.wav"),
+        offset_sec=1.0,
+        sir_db=0.0,
+        write_wav=False,
+        speaker_id_a=speaker_id_a,
+        speaker_id_b=speaker_id_b,
+    )
+    return entries
+
+
+def _write_manifest(path, entries):
+    path.write_text("".join(e.model_dump_json() + "\n" for e in entries), encoding="utf-8")
+
+
+def test_export_lhotse_cuts_merges_mirrored_pairs_and_keeps_clean_lines(tmp_path):
+    clean = SingleSpeakerManifestEntry.from_clean_audio(
+        audio_filepath=str(tmp_path / "wavs" / "coraa_mupe_train_0000001.wav"),
+        duration=1.6,
+        text="Fala limpa.",
+        speaker_id="spk_C",
+    )
+    manifest = tmp_path / "multitalker_train_manifest.json"
+    # A mesma linha limpa repetida (sorteio com reposição) deve virar 2 cuts distintos
+    _write_manifest(manifest, _mixed_pair_entries(tmp_path) + [clean, clean])
+
+    cuts_path, num_cuts = export_lhotse_cuts(str(manifest))
+    cuts = [json.loads(line) for line in open(cuts_path, encoding="utf-8")]
+
+    assert cuts_path.endswith("multitalker_train_manifest_cuts.jsonl")
+    assert num_cuts == len(cuts) == 3
+    assert len({c["id"] for c in cuts}) == 3
+
+    mix_cut = cuts[0]
+    assert mix_cut["type"] == "MonoCut"
+    assert mix_cut["custom"] == {}
+    assert mix_cut["duration"] == 3.0
+    assert mix_cut["recording"]["sources"][0]["source"].endswith("mix_000000.wav")
+    assert mix_cut["recording"]["num_samples"] == 48000
+    sup_a, sup_b = mix_cut["supervisions"]
+    assert (sup_a["speaker"], sup_a["text"], sup_a["start"], sup_a["duration"]) == ("spk_A", "Bom dia pessoal.", 0.0, 2.4)
+    assert (sup_b["speaker"], sup_b["text"], sup_b["start"], sup_b["duration"]) == ("spk_B", "O relatório já saiu?", 0.96, 2.04)
+    assert all(s["recording_id"] == mix_cut["recording"]["id"] and s["language"] == "pt" for s in (sup_a, sup_b))
+
+    for clean_cut in cuts[1:]:
+        assert len(clean_cut["supervisions"]) == 1
+        sup = clean_cut["supervisions"][0]
+        assert (sup["speaker"], sup["start"], sup["duration"]) == ("spk_C", 0.0, 1.6)
+
+
+def test_export_lhotse_cuts_relabels_missing_or_equal_speakers(tmp_path):
+    manifest = tmp_path / "multitalker_val_manifest.json"
+    _write_manifest(manifest, _mixed_pair_entries(tmp_path, speaker_id_a="spk_X", speaker_id_b="spk_X"))
+
+    cuts_path, _ = export_lhotse_cuts(str(manifest), cuts_path=str(tmp_path / "val_cuts.jsonl"))
+    cut = json.loads(open(cuts_path, encoding="utf-8").readline())
+    assert [s["speaker"] for s in cut["supervisions"]] == ["spk_a", "spk_b"]
+
+
+def test_export_lhotse_cuts_rejects_unpaired_mix_line(tmp_path):
+    manifest = tmp_path / "multitalker_train_manifest.json"
+    _write_manifest(manifest, _mixed_pair_entries(tmp_path)[:1])
+    with pytest.raises(ValueError, match="par espelhado"):
+        export_lhotse_cuts(str(manifest))

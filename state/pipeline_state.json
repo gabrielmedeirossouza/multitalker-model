@@ -1,9 +1,9 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-24T23:32:03Z",
-  "overall_status": "ready",
-  "current_step_id": "step_01_data_prep_clean",
+  "updated_at": "2026-10-25T01:41:09Z",
+  "overall_status": "in_progress",
+  "current_step_id": "step_05_colab_stage1_warmup",
   "steps": [
     {
       "step_id": "step_00_audit_and_contracts",
@@ -28,15 +28,20 @@
       "step_id": "step_01_data_prep_clean",
       "title": "Download e Padronização 16kHz Mono dos Datasets PT-BR direto no Colab SSD",
       "environment": "colab_cpu",
-      "status": "pending",
+      "status": "completed",
       "started_at": "2026-10-24T19:09:09Z",
-      "completed_at": "2026-10-24T19:09:09Z",
+      "completed_at": "2026-10-25T01:10:52Z",
       "last_command": "python -m src.data_prep --ensure_colab_dataset --dataset coraa_mupe --val_stride 4 --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr",
       "artifacts": {
         "clean_train_manifest": "/content/local_dataset/clean_train_manifest.json",
         "clean_val_manifest": "/content/local_dataset/clean_val_manifest.json"
       },
-      "metrics": {},
+      "metrics": {
+        "dataset": "coraa_mupe",
+        "clean_train_samples": "251702",
+        "clean_val_samples": "2242",
+        "val_stride": "4"
+      },
       "notes": "Refazendo Steps 01-04 com CORAA-MUPE-ASR (365 h, caixa/pontuação, locutores) após a falha do warmup com FLEURS (Spec 04 §8.5)."
     },
     {
@@ -45,12 +50,14 @@
       "environment": "colab_cpu",
       "status": "completed",
       "started_at": "2026-10-24T19:09:09Z",
-      "completed_at": "2026-10-24T19:09:09Z",
+      "completed_at": "2026-10-25T01:10:52Z",
       "last_command": null,
       "artifacts": {
-        "tokenizer_dir": "/content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024"
+        "tokenizer_dir": "/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/tokenizer_ptbr_1024"
       },
-      "metrics": {},
+      "metrics": {
+        "dataset": "coraa_mupe"
+      },
       "notes": "Treinando tokenizador BPE 1024 em PT-BR no Colab."
     },
     {
@@ -59,13 +66,18 @@
       "environment": "colab_cpu",
       "status": "completed",
       "started_at": "2026-10-24T19:09:09Z",
-      "completed_at": "2026-10-24T19:09:31Z",
+      "completed_at": "2026-10-25T01:10:52Z",
       "last_command": null,
       "artifacts": {
         "multitalker_train_manifest": "/content/local_dataset/multitalker_train_manifest.json",
         "multitalker_val_manifest": "/content/local_dataset/multitalker_val_manifest.json"
       },
-      "metrics": {},
+      "metrics": {
+        "train_mixtures": "1000",
+        "train_lines": "2857",
+        "val_mixtures": "200",
+        "val_lines": "400"
+      },
       "notes": "Gerando misturas sobrepostas de 80ms no SSD do Colab."
     },
     {
@@ -74,24 +86,30 @@
       "environment": "colab_cpu",
       "status": "completed",
       "started_at": "2026-10-24T19:09:31Z",
-      "completed_at": "2026-10-24T19:12:02Z",
+      "completed_at": "2026-10-25T01:10:52Z",
       "last_command": null,
       "artifacts": {
-        "colab_bundle_tar_gz": "/content/drive/MyDrive/parakeet_ptbr/ptbr_dataset_16khz.tar.gz"
+        "colab_bundle_tar_gz": "/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/ptbr_dataset_16khz.tar.gz"
       },
-      "metrics": {},
+      "metrics": {
+        "bundle_size_gb": "26"
+      },
       "notes": "Compactando /content/local_dataset para /content/drive/MyDrive/parakeet_ptbr/ptbr_dataset_16khz.tar.gz no Drive."
     },
     {
       "step_id": "step_05_colab_stage1_warmup",
       "title": "Treinamento Fase 1 (Warm-up: Encoder Congelado, Decoder/Joint PT-BR) na GPU A100",
       "environment": "colab_a100",
-      "status": "pending",
-      "started_at": null,
+      "status": "in_progress",
+      "started_at": "2026-10-25T01:14:10Z",
       "completed_at": null,
-      "last_command": "python -m src.trainer --stage warmup --manifest /content/local_dataset/clean_train_manifest.json --val_manifest /content/local_dataset/clean_val_manifest.json --checkpoint_dir /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup --tokenizer_dir /content/drive/MyDrive/parakeet_ptbr/tokenizer_ptbr_1024 --update_state",
+      "last_command": "colab_guard launch --job warmup_mupe (setup + extração + trainer --stage warmup em exp_coraa_mupe_warmup; A100-SXM4-80GB; log em /content/drive/MyDrive/parakeet_ptbr/jobs/warmup_mupe.log)",
       "artifacts": {},
-      "metrics": {},
+      "metrics": {
+        "val_wer_step_4000": "0.7439",
+        "steps_per_sec": "6.6",
+        "max_steps": "24000"
+      },
       "notes": "Warmup v1 (Joint/Decoder totalmente reinicializados) terminou com val_wer=0.9931 por atalho de LM (DISC-020). Checkpoints movidos para /content/drive/MyDrive/parakeet_checkpoints/exp_v1_warmup_failed_lmshortcut."
     },
     {
@@ -149,27 +167,27 @@
     },
     {
       "id": "blocker_colab_drive_auth",
-      "step_id": "step_01_data_prep_clean",
+      "step_id": "step_05_colab_stage1_warmup",
       "description": "Colab pediu interação humana (drive_auth) durante `bridge drive-mount`.",
-      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22yX_QwAZMIUngzjLo5PB1lJPOxXI%3A1792884119762%22%2C%22endpoint%22%3A%22m-hm-euw4b0-3d672n2pvrxh0%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
-      "created_at": "2026-10-24T23:22:00Z",
+      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22HZ08-PPEPsE5JQle-aX_UzcIGUo%3A1792890677335%22%2C%22endpoint%22%3A%22gpu-a100-hm-ass1c0-3lowenm3tu1we%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
+      "created_at": "2026-10-25T01:11:17Z",
       "resolved": true,
-      "resolved_at": "2026-10-24T23:24:22Z"
+      "resolved_at": "2026-10-25T01:13:15Z"
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Corpus da Fase 1 definido: CORAA-MUPE-ASR (nilc-nlp/CORAA-MUPE-ASR, 365 h, caixa/pontuação, locutores; uso não comercial confirmado pelo usuário). Spec 01, HFDatasetSource, normalize_transcript, streaming e artefatos por corpus implementados e testados.",
-    "next_agent_action": "Rodar Steps 01-04 com coraa_mupe numa VM CPU High-RAM do Colab via src.colab_guard launch (job data_mupe) e acompanhar com job-status; depois ajustar o agendamento da Fase 1 (max_epochs/validação por passos) ao tamanho do MUPE e treinar em exp_coraa_mupe_warmup.",
-    "next_exact_command": "python -m src.data_prep --ensure_colab_dataset --dataset coraa_mupe --val_stride 4 --local_dataset_dir /content/local_dataset --drive_root_dir /content/drive/MyDrive/parakeet_ptbr",
+    "last_agent_summary": "Warmup CORAA-MUPE rodando na A100-80GB (~6,6 passos/s, 85% GPU, 15 GB). Primeira validação no passo 4.000: val_wer=0,7439 (FLEURS ficava >= 0,993); checkpoint salvo em exp_coraa_mupe_warmup.",
+    "next_agent_action": "Acompanhar o job warmup_mupe (A100) até o fim (~02:40 UTC, 24.000 passos) com job-status --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs; depois avaliar a curva de val_wer e preparar a step_06 (ampliar misturas: só 1.000 de treino; commitar a exportação CutSet da Spec 02 §3.7).",
+    "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job warmup_mupe --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs --tail 40",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
       "No ambiente local (Mac), use sempre os binários `.venv/bin/python` e `.venv/bin/pytest`.",
       "Mantenha `max_duration <= 20.0` segundos para evitar descarte ou OOM na Joint Network 4D na A100.",
       "Nunca passe vírgula em string separada por vírgulas para `user_defined_symbols` do SentencePiece.",
-      "Fase 2 bloqueada por formato de dados: LhotseSpeechToTextSpkBpeDataset ignora spk_targets do manifesto (Spec 04 §8.2, DISC-019); o mixer precisa emitir cuts Lhotse com uma supervision por locutor.",
-      "Cada .ckpt/.nemo tem ~2,5 GB e arquivos rotacionados no Drive vão para a Lixeira (consomem cota): mantenha save_top_k=1 e validação espaçada (Spec 04 §4).",
+      "Fase 2 lê CutSet Lhotse (cuts_path) derivado do manifesto espelhado por configure_multitalker_cuts() (Spec 02 §3.7, DISC-026); cuts escritos à mão precisam de custom={} para o speaker_to_target() do NeMo.",
       "Lightning 2.x preserva o modo train/eval dos submódulos no fit: não chame model.eval() antes de trainer.fit.",
-      "FLEURS não expõe speaker_id: cada amostra recebe um locutor único (fleurs_pt_<idx>), o que enfraquece a garantia de locutores distintos do mixer."
+      "FLEURS não expõe speaker_id: cada amostra recebe um locutor único (fleurs_pt_<idx>), o que enfraquece a garantia de locutores distintos do mixer.",
+      "Cada .ckpt/.nemo tem ~2,5 GB: mantenha save_top_k=1 e validação espaçada por custo de I/O (Spec 04 §4); o Drive tem 5 TB (DISC-025), cota não é gargalo."
     ]
   },
   "discoveries": [
@@ -364,6 +382,22 @@
       "title": "launch falha com timeout logo após exec com datasets em streaming; throughput do MUPE",
       "problem": "Após um exec que iterou um IterableDataset do HF em streaming, o launch seguinte retornou timeout (exit 11) em 90 s sem criar o job: o kernel ainda estava ocupado com threads do streaming. Export do coraa_mupe numa VM CPU High-RAM (8 vCPU, 50 GB RAM, 226 GB disco) roda a ~62 amostras/s em 1 núcleo (~70 min para o train).",
       "solution": "Após timeout de launch, conferir job-status (job_not_found = não iniciou) e repetir o launch uma vez: o guarda já interrompe o kernel. Evitar exec pesado com datasets em streaming no kernel; usar launch. Estimar Steps 01-04 do MUPE em ~1,5 h (export ~70 min + tokenizador + mixer + tar ~40 GB)."
+    },
+    {
+      "id": "DISC-025",
+      "timestamp": "2026-10-24T23:36:06Z",
+      "category": "ambiente_colab",
+      "title": "Google Drive do usuário tem 5 TB",
+      "problem": "A VM do Colab não expõe a cota do Drive (df em /content/drive mostra o disco local da VM, não a cota), e os agentes vinham tratando o espaço no Drive como gargalo.",
+      "solution": "Segundo o usuário (2026-10-24), o Drive tem 5 TB: pacotes de ~40 GB e checkpoints na Lixeira não são gargalo. Manter save_top_k=1 por custo de I/O, mas não bloquear o pipeline por cota."
+    },
+    {
+      "id": "DISC-026",
+      "timestamp": "2026-10-24T23:47:44Z",
+      "category": "dados_multitalker",
+      "title": "Fase 2 resolvida via CutSet Lhotse derivado do manifesto espelhado; cut.custom não pode ser None",
+      "problem": "O LhotseSpeechToTextSpkBpeDataset ignora spk_targets do manifesto (DISC-019). Cuts Lhotse escritos à mão sem 'custom' quebram o speaker_to_target() do NeMo 3.0 com AttributeError ('NoneType' object has no attribute 'get'), pois ele chama cut.custom.get('rttm_filepath'). O NeMo também oferece o simulador on-the-fly multi_speaker_simulator (lsmix), mas sem SIR/anti-clipping e com iterador infinito, inviável para validação.",
+      "solution": "src/mixer.py export_lhotse_cuts() converte o manifesto espelhado em <manifesto>_cuts.jsonl (par mix_* -> 1 MonoCut com 2 supervisions do 1º ao último frame ativo de cada máscara; linha limpa -> 1 supervision [0, D]; custom={}), e src/trainer.py configure_multitalker_cuts() troca manifest_filepath por cuts_path na Fase 2 (Spec 02 §3.7, Spec 04 §8.2). Não é preciso remixar nem reempacotar o .tar.gz. Validado na VM (lhotse 1.33, NeMo 3.0) pelo caminho real get_lhotse_dataloader_from_config: máscaras batem com as nossas até 1 frame nas bordas. Pendência da step_07: src/evaluator.py chama transcribe() nas misturas sem informar o locutor-alvo."
     }
   ]
 }

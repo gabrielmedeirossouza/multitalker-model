@@ -230,6 +230,32 @@ def preflight_validate_manifest(
     return checked
 
 
+def configure_multitalker_cuts(
+    raw_cfg: Dict[str, Any],
+    train_manifest: str,
+    val_manifest: Optional[str],
+) -> int:
+    """
+    Fase 2: o LhotseSpeechToTextSpkBpeDataset deriva as máscaras das supervisions, não do manifesto.
+    Troca manifest_filepath pelo cuts_path do CutSet derivado do manifesto espelhado (Spec 02 §3.7) e
+    retorna o número de cuts de treino, base do max_steps (Spec 04 §8.2).
+    """
+    from src.mixer import export_lhotse_cuts
+
+    num_train_cuts = 0
+    for ds_key, manifest in (("train_ds", train_manifest), ("validation_ds", val_manifest)):
+        if not manifest:
+            continue
+        cuts_path, num_cuts = export_lhotse_cuts(manifest)
+        ds_cfg = raw_cfg["model"][ds_key]
+        ds_cfg.pop("manifest_filepath", None)
+        ds_cfg["cuts_path"] = cuts_path
+        print(f"[Spec 04 §8.2] {ds_key}: {num_cuts} cuts Lhotse em {cuts_path}.")
+        if ds_key == "train_ds":
+            num_train_cuts = num_cuts
+    return num_train_cuts
+
+
 def apply_stage_optimizations_to_nemo_model(
     asr_model: Any,
     raw_cfg: Dict[str, Any],
@@ -344,6 +370,8 @@ def run_nemo_training(
         raw_cfg["model"]["train_ds"]["manifest_filepath"] = train_manifest
         if val_manifest:
             raw_cfg["model"]["validation_ds"]["manifest_filepath"] = val_manifest
+        if stage_contract.stage == "multitalker":
+            checked_train = configure_multitalker_cuts(raw_cfg, train_manifest, val_manifest)
         if tokenizer_dir:
             raw_cfg["model"]["tokenizer"]["dir"] = tokenizer_dir
         if init_model:

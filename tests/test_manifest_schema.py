@@ -11,6 +11,7 @@ from src.schemas import (
     EvaluationReport,
     FRAME_DURATION_SEC,
     HFDatasetSource,
+    MultitalkerCut,
     MultitalkerManifestEntry,
     REQUIRED_ATT_CONTEXT_SIZE,
     SingleSpeakerManifestEntry,
@@ -30,6 +31,7 @@ from src.trainer import (
     align_max_steps_to_val_interval,
     apply_stage_optimizations_to_nemo_model,
     compute_max_steps,
+    configure_multitalker_cuts,
     freeze_speaker_kernels,
     load_and_validate_stage_config,
     preflight_validate_manifest,
@@ -125,6 +127,36 @@ def test_yaml_configs_comply_with_spec_04():
     assert multi_contract.freeze_encoder is False
     assert multi_contract.precision == "bf16-mixed"
     assert multi_contract.resume_if_exists is True
+
+
+def test_multitalker_cut_rejects_repeated_speakers_and_overflowing_supervisions():
+    sup = {"speaker": "spk_A", "start": 0.0, "duration": 1.0, "text": "Olá."}
+    with pytest.raises(ValidationError, match="repetidos"):
+        MultitalkerCut(id="mix", audio_filepath="/x/mix.wav", duration=2.0, supervisions=[sup, dict(sup, start=0.5)])
+    with pytest.raises(ValidationError, match="após a duração"):
+        MultitalkerCut(id="mix", audio_filepath="/x/mix.wav", duration=2.0, supervisions=[dict(sup, start=1.5)])
+
+
+def test_configure_multitalker_cuts_replaces_manifests_with_cutsets(tmp_path):
+    manifests = {}
+    for split, n in (("train", 3), ("val", 1)):
+        entries = [
+            SingleSpeakerManifestEntry.from_clean_audio(
+                audio_filepath=f"/content/local_dataset/wavs/{split}_{i}.wav", duration=1.6, text="Fala.", speaker_id="spk_1"
+            )
+            for i in range(n)
+        ]
+        manifests[split] = tmp_path / f"multitalker_{split}_manifest.json"
+        manifests[split].write_text("".join(e.model_dump_json() + "\n" for e in entries), encoding="utf-8")
+
+    raw_cfg, _ = load_and_validate_stage_config("multitalker")
+    num_train_cuts = configure_multitalker_cuts(raw_cfg, str(manifests["train"]), str(manifests["val"]))
+
+    assert num_train_cuts == 3
+    for ds_key, split in (("train_ds", "train"), ("validation_ds", "val")):
+        ds = raw_cfg["model"][ds_key]
+        assert "manifest_filepath" not in ds
+        assert ds["cuts_path"] == str(tmp_path / f"multitalker_{split}_manifest_cuts.jsonl")
 
 
 def test_rejects_unfrozen_encoder_in_warmup():

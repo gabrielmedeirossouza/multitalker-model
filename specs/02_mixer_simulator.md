@@ -50,6 +50,16 @@ Combinar 2 arquivos WAV mono (16 kHz) de locutores distintos em um único WAV mi
 ### 3.6. Composição Híbrida para a Fase 2 (70% Multitalker + 30% Single-Speaker)
 - Conforme exigido pela `Spec 04`, `generate_mixed_dataset_from_manifest` suporta o parâmetro `clean_ratio` (padrão `0.30` para o manifesto de treino da Fase 2), mesclando no manifesto final 70% de registros sobrepostos espelhados e 30% de registros single-speaker limpos (`spk_targets=1`, `bg_spk_targets=0`).
 
+### 3.7. Exportação para `CutSet` Lhotse (Fase 2, `step_06`)
+O `LhotseSpeechToTextSpkBpeDataset` do NeMo 3.0 ignora `spk_targets`/`bg_spk_targets` do manifesto: deriva as máscaras das *supervisions* de cada `Cut` e sorteia o locutor-alvo a cada leitura (`Spec 04 §8.2`). O manifesto espelhado continua sendo a fonte da verdade; `export_lhotse_cuts()` o converte num `CutSet` JSONL (`<manifesto>_cuts.jsonl`, ao lado do manifesto) que o `src/trainer.py` passa em `cuts_path` na Fase 2:
+- **Par espelhado → 1 `MonoCut` com 2 supervisions:** duas linhas consecutivas com o mesmo `audio_filepath` `mix_*.wav` e máscaras invertidas (`spk_targets` de uma = `bg_spk_targets` da outra). Cada linha vira a supervision (`speaker`, `start`, `duration`, `text`) do seu locutor-alvo. Não há espelhamento no `CutSet`: o dataset sorteia o alvo.
+- **Intervalo da supervision:** do primeiro ($f_0$) ao último ($f_1$) frame ativo da máscara do locutor, considerando só frames com início $< D$: $\text{start} = f_0 \cdot 0{,}08$ e $\text{end} = \min((f_1 + 1) \cdot 0{,}08,\ D)$. Pausas internas ficam dentro do intervalo (o NeMo marca a supervision inteira como fala, como no simulador `lsmix` do pré-treino). Máscara sem frame ativo (locutor abaixo de $\theta_{\text{vad}}$) → intervalo $[0, D]$.
+- **Linha single-speaker** (os 30% limpos da §3.6, inclusive repetições do mesmo arquivo) → 1 `MonoCut` com 1 supervision $[0, D]$. O ID do cut é `<stem do wav>-<índice da linha>`, único no `CutSet`.
+- **Rótulos de locutor distintos no cut:** se algum `speaker_id` do par estiver ausente ou ambos forem iguais, usar `spk_a`/`spk_b` (o NeMo agrupa supervisions pelo rótulo e juntaria os dois textos num alvo só).
+- `Recording`: fonte `file` mono, `sampling_rate = 16000`, `num_samples = round(D · 16000)`; supervisions com `language = "pt"`; cut com `custom = {}` (o `speaker_to_target()` do NeMo chama `cut.custom.get(...)` e quebra com `None`).
+- Validado na VM com `lhotse 1.33` e `nemo_toolkit 3.0`: `CutSet.from_file` + `get_lhotse_dataloader_from_config(cuts_path=...)` produzem as máscaras esperadas, com diferença de até 1 frame nas bordas pela quantização 10 ms → 80 ms do próprio NeMo.
+- Linha `mix_*` sem par espelhado válido aborta a conversão com `ValueError`.
+
 ---
 
 ## 4. Critérios de Aceite (Testes Automatizados)
@@ -58,3 +68,6 @@ Combinar 2 arquivos WAV mono (16 kHz) de locutores distintos em um único WAV mi
   1. A mistura de dois sinais em 16 kHz gera um sinal mono 16 kHz cujo pico máximo nunca ultrapassa `0.99` (mesmo quando ambos os sinais de entrada têm amplitude máxima `1.0`).
   2. A função de mixagem retorna **exatamente 2 objetos `MultitalkerManifestEntry` válidos** para cada par misturado, com `spk_targets` e `bg_spk_targets` perfeitamente invertidos entre o primeiro e o segundo registro.
   3. O número de frames das máscaras corresponde a `ceil(duration / 0.08)`.
+  4. `export_lhotse_cuts()` converte cada par espelhado em 1 cut com 2 supervisions de rótulos distintos, com intervalos do primeiro ao último frame ativo de cada máscara e fim dentro da duração do cut, e cada linha limpa em 1 cut com 1 supervision $[0, D]$ (§3.7).
+  5. Linha `mix_*` sem par espelhado válido gera `ValueError` (§3.7).
+- `tests/test_manifest_schema.py` deve validar que `MultitalkerCut` rejeita rótulos de locutor repetidos e supervisions que terminam após a duração do cut.

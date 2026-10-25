@@ -11,12 +11,15 @@ import numpy as np
 import soundfile as sf
 
 from src.schemas import (
+    FRAME_DURATION_SEC,
     MAX_PEAK_AMPLITUDE,
     MixerConfig,
+    MultitalkerCut,
     MultitalkerManifestEntry,
     REQUIRED_SAMPLE_RATE,
     SAMPLES_PER_FRAME,
     SingleSpeakerManifestEntry,
+    SpeakerSupervision,
     expected_frames_for_duration,
 )
 
@@ -349,6 +352,74 @@ def generate_mixed_dataset_from_manifest(
             written_entries += 1
 
     return written_entries
+
+
+def _supervision_from_mask(entry: MultitalkerManifestEntry, speaker: str) -> SpeakerSupervision:
+    """Intervalo do primeiro ao último frame ativo da máscara do alvo; sem frame ativo, [0, D] (Spec 02 §3.7)."""
+    active = [
+        idx for idx, val in enumerate(entry.spk_targets)
+        if val == 1 and idx * FRAME_DURATION_SEC < entry.duration
+    ]
+    if not active:
+        return SpeakerSupervision(speaker=speaker, start=0.0, duration=entry.duration, text=entry.text)
+    start = round(active[0] * FRAME_DURATION_SEC, 4)
+    end = min(round((active[-1] + 1) * FRAME_DURATION_SEC, 4), entry.duration)
+    return SpeakerSupervision(speaker=speaker, start=start, duration=round(end - start, 4), text=entry.text)
+
+
+def manifest_entries_to_cuts(entries: List[MultitalkerManifestEntry]) -> List[MultitalkerCut]:
+    """
+    Agrupa cada par espelhado (linhas mix_* consecutivas) num cut com 2 supervisions e cada linha
+    limpa num cut com 1 supervision, como exige o LhotseSpeechToTextSpkBpeDataset (Spec 02 §3.7).
+    """
+    cuts: List[MultitalkerCut] = []
+    idx = 0
+    while idx < len(entries):
+        entry = entries[idx]
+        cut_id = f"{Path(entry.audio_filepath).stem}-{idx:07d}"
+        if not Path(entry.audio_filepath).name.startswith("mix_"):
+            supervisions = [
+                SpeakerSupervision(
+                    speaker=entry.speaker_id or "spk_a", start=0.0, duration=entry.duration, text=entry.text
+                )
+            ]
+            idx += 1
+        else:
+            pair = entries[idx + 1] if idx + 1 < len(entries) else None
+            if (
+                pair is None
+                or pair.audio_filepath != entry.audio_filepath
+                or pair.spk_targets != entry.bg_spk_targets
+                or pair.bg_spk_targets != entry.spk_targets
+            ):
+                raise ValueError(
+                    f"Linha {idx + 1} ({entry.audio_filepath}) sem par espelhado válido na linha seguinte (Spec 02 §3.7)."
+                )
+            spk_a, spk_b = entry.speaker_id, pair.speaker_id
+            if not spk_a or not spk_b or spk_a == spk_b:
+                spk_a, spk_b = "spk_a", "spk_b"
+            supervisions = [_supervision_from_mask(entry, spk_a), _supervision_from_mask(pair, spk_b)]
+            idx += 2
+        cuts.append(
+            MultitalkerCut(
+                id=cut_id, audio_filepath=entry.audio_filepath, duration=entry.duration, supervisions=supervisions
+            )
+        )
+    return cuts
+
+
+def export_lhotse_cuts(manifest_path: str, cuts_path: Optional[str] = None) -> Tuple[str, int]:
+    """Converte o manifesto espelhado num CutSet JSONL para o cuts_path da Fase 2 (Spec 02 §3.7, Spec 04 §8.2)."""
+    with open(manifest_path, "r", encoding="utf-8") as f:
+        entries = [MultitalkerManifestEntry.model_validate_json(line) for line in f if line.strip()]
+    cuts = manifest_entries_to_cuts(entries)
+
+    out_path = Path(cuts_path) if cuts_path else Path(manifest_path).with_name(f"{Path(manifest_path).stem}_cuts.jsonl")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as out_f:
+        for cut in cuts:
+            out_f.write(json.dumps(cut.to_lhotse_dict(), ensure_ascii=False) + "\n")
+    return str(out_path), len(cuts)
 
 
 def main() -> None:
