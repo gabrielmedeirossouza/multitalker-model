@@ -1,7 +1,7 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-25T01:41:09Z",
+  "updated_at": "2026-10-25T01:46:37Z",
   "overall_status": "in_progress",
   "current_step_id": "step_05_colab_stage1_warmup",
   "steps": [
@@ -176,8 +176,8 @@
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Warmup CORAA-MUPE rodando na A100-80GB (~6,6 passos/s, 85% GPU, 15 GB). Primeira validação no passo 4.000: val_wer=0,7439 (FLEURS ficava >= 0,993); checkpoint salvo em exp_coraa_mupe_warmup.",
-    "next_agent_action": "Acompanhar o job warmup_mupe (A100) até o fim (~02:40 UTC, 24.000 passos) com job-status --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs; depois avaliar a curva de val_wer e preparar a step_06 (ampliar misturas: só 1.000 de treino; commitar a exportação CutSet da Spec 02 §3.7).",
+    "last_agent_summary": "Warmup CORAA-MUPE na A100 (val_wer=0,7439 no passo 4.000). Encontrado e corrigido localmente o bug de colisão de nomes das misturas train/val e o desvio 70/30 do CutSet; misturas do pacote atual precisam ser regeneradas antes da Fase 2.",
+    "next_agent_action": "Após o push do commit com a correção (Spec 02 §3.6/§3.7), lançar na A100 o job mix_mupe a partir de um clone separado (/content/mt-prep, para não mexer no repo do warmup em execução): apagar wavs/mix_* e multitalker_*_manifest.json antigos, gerar 50.000 misturas de treino (clean_ratio 0.30) e 500 de validação, e reempacotar /content/local_dataset em .tar.gz.tmp no Drive (pack_dataset_for_colab_ssd, sem reescrever manifestos lidos pelo warmup) antes de renomear. Ao fim do warmup (~02:40 UTC), iniciar a step_06.",
     "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job warmup_mupe --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs --tail 40",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
@@ -398,6 +398,14 @@
       "title": "Fase 2 resolvida via CutSet Lhotse derivado do manifesto espelhado; cut.custom não pode ser None",
       "problem": "O LhotseSpeechToTextSpkBpeDataset ignora spk_targets do manifesto (DISC-019). Cuts Lhotse escritos à mão sem 'custom' quebram o speaker_to_target() do NeMo 3.0 com AttributeError ('NoneType' object has no attribute 'get'), pois ele chama cut.custom.get('rttm_filepath'). O NeMo também oferece o simulador on-the-fly multi_speaker_simulator (lsmix), mas sem SIR/anti-clipping e com iterador infinito, inviável para validação.",
       "solution": "src/mixer.py export_lhotse_cuts() converte o manifesto espelhado em <manifesto>_cuts.jsonl (par mix_* -> 1 MonoCut com 2 supervisions do 1º ao último frame ativo de cada máscara; linha limpa -> 1 supervision [0, D]; custom={}), e src/trainer.py configure_multitalker_cuts() troca manifest_filepath por cuts_path na Fase 2 (Spec 02 §3.7, Spec 04 §8.2). Não é preciso remixar nem reempacotar o .tar.gz. Validado na VM (lhotse 1.33, NeMo 3.0) pelo caminho real get_lhotse_dataloader_from_config: máscaras batem com as nossas até 1 frame nas bordas. Pendência da step_07: src/evaluator.py chama transcribe() nas misturas sem informar o locutor-alvo."
+    },
+    {
+      "id": "DISC-027",
+      "timestamp": "2026-10-25T01:46:37Z",
+      "category": "dados_multitalker",
+      "title": "Misturas de validação sobrescreviam as de treino (mesmo mix_<idx>.wav); CutSet com 1 cut por par quebrava o 70/30",
+      "problem": "data_prep chama o mixer de treino e de validação com o mesmo output_dir e o mixer nomeava os WAVs mix_<idx:06d>.wav: as 200 misturas de validação sobrescreveram mix_000000..000199 do treino (no CORAA-MUPE, mix_000000.wav tem 3,72 s mas o manifesto de treino diz 5,79 s), deixando texto/máscaras sem relação com o áudio e vazando validação no treino. A Fase 1 não é afetada (só usa clean_*). Além disso, o CutSet com 1 cut por par espelhado (DISC-026) mudava a composição por amostra de 70/30 para ~54/46.",
+      "solution": "WAVs nomeados mix_<stem do manifesto de saída>_<idx:06d>.wav (Spec 02 §3.6) e teste de regressão com treino+val no mesmo diretório. export_lhotse_cuts() emite 1 cut por linha do manifesto (o par vira 2 cuts com as 2 supervisions; o dataset sorteia o alvo em cada leitura), preservando 70/30 e max_steps. Padrões do data_prep: 50.000 misturas de treino e 500 de validação. As misturas do pacote coraa_mupe atual (1.000/200, nomes antigos) devem ser apagadas e regeneradas antes da step_06."
     }
   ]
 }

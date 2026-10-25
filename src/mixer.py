@@ -310,7 +310,8 @@ def generate_mixed_dataset_from_manifest(
             if sr_a != REQUIRED_SAMPLE_RATE or sr_b != REQUIRED_SAMPLE_RATE:
                 raise ValueError("Todos os áudios de entrada devem estar em 16.000 Hz.")
 
-            wav_name = f"mix_{mix_idx:06d}.wav"
+            # Namespace por manifesto: treino e validação dividem output_dir/wavs (Spec 02 §3.6)
+            wav_name = f"mix_{out_manifest.stem}_{mix_idx:06d}.wav"
             mix_wav_path = str(out_wav_dir / wav_name)
             manifest_wav_path = (
                 str(Path(target_root_dir) / "wavs" / wav_name)
@@ -369,20 +370,21 @@ def _supervision_from_mask(entry: MultitalkerManifestEntry, speaker: str) -> Spe
 
 def manifest_entries_to_cuts(entries: List[MultitalkerManifestEntry]) -> List[MultitalkerCut]:
     """
-    Agrupa cada par espelhado (linhas mix_* consecutivas) num cut com 2 supervisions e cada linha
-    limpa num cut com 1 supervision, como exige o LhotseSpeechToTextSpkBpeDataset (Spec 02 §3.7).
+    Converte cada linha do manifesto num cut, como exige o LhotseSpeechToTextSpkBpeDataset (Spec 02 §3.7):
+    as 2 linhas de um par espelhado (mix_* consecutivas) viram 2 cuts com as supervisions dos 2 locutores,
+    e cada linha limpa vira 1 cut com 1 supervision.
     """
     cuts: List[MultitalkerCut] = []
     idx = 0
     while idx < len(entries):
         entry = entries[idx]
-        cut_id = f"{Path(entry.audio_filepath).stem}-{idx:07d}"
         if not Path(entry.audio_filepath).name.startswith("mix_"):
             supervisions = [
                 SpeakerSupervision(
                     speaker=entry.speaker_id or "spk_a", start=0.0, duration=entry.duration, text=entry.text
                 )
             ]
+            line_indices = [idx]
             idx += 1
         else:
             pair = entries[idx + 1] if idx + 1 < len(entries) else None
@@ -399,11 +401,16 @@ def manifest_entries_to_cuts(entries: List[MultitalkerManifestEntry]) -> List[Mu
             if not spk_a or not spk_b or spk_a == spk_b:
                 spk_a, spk_b = "spk_a", "spk_b"
             supervisions = [_supervision_from_mask(entry, spk_a), _supervision_from_mask(pair, spk_b)]
+            line_indices = [idx, idx + 1]
             idx += 2
-        cuts.append(
+        cuts.extend(
             MultitalkerCut(
-                id=cut_id, audio_filepath=entry.audio_filepath, duration=entry.duration, supervisions=supervisions
+                id=f"{Path(entry.audio_filepath).stem}-{line_idx:07d}",
+                audio_filepath=entry.audio_filepath,
+                duration=entry.duration,
+                supervisions=supervisions,
             )
+            for line_idx in line_indices
         )
     return cuts
 

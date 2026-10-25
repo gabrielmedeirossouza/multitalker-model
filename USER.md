@@ -7,7 +7,7 @@
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
 - **Status Geral:** 🔄 Em Execução por Agente
 - **Etapa Atual:** `step_05_colab_stage1_warmup` — Treinamento Fase 1 (Warm-up: Encoder Congelado, Decoder/Joint PT-BR) na GPU A100 (`colab_a100`)
-- **Última Atualização (UTC):** `2026-10-25T01:41:09Z`
+- **Última Atualização (UTC):** `2026-10-25T01:46:37Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
@@ -29,8 +29,8 @@
 
 ## 4. Handover para o Próximo Agente de IA
 
-- **Resumo da Última Sessão:** Warmup CORAA-MUPE rodando na A100-80GB (~6,6 passos/s, 85% GPU, 15 GB). Primeira validação no passo 4.000: val_wer=0,7439 (FLEURS ficava >= 0,993); checkpoint salvo em exp_coraa_mupe_warmup.
-- **Próxima Ação do Agente:** Acompanhar o job warmup_mupe (A100) até o fim (~02:40 UTC, 24.000 passos) com job-status --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs; depois avaliar a curva de val_wer e preparar a step_06 (ampliar misturas: só 1.000 de treino; commitar a exportação CutSet da Spec 02 §3.7).
+- **Resumo da Última Sessão:** Warmup CORAA-MUPE na A100 (val_wer=0,7439 no passo 4.000). Encontrado e corrigido localmente o bug de colisão de nomes das misturas train/val e o desvio 70/30 do CutSet; misturas do pacote atual precisam ser regeneradas antes da Fase 2.
+- **Próxima Ação do Agente:** Após o push do commit com a correção (Spec 02 §3.6/§3.7), lançar na A100 o job mix_mupe a partir de um clone separado (/content/mt-prep, para não mexer no repo do warmup em execução): apagar wavs/mix_* e multitalker_*_manifest.json antigos, gerar 50.000 misturas de treino (clean_ratio 0.30) e 500 de validação, e reempacotar /content/local_dataset em .tar.gz.tmp no Drive (pack_dataset_for_colab_ssd, sem reescrever manifestos lidos pelo warmup) antes de renomear. Ao fim do warmup (~02:40 UTC), iniciar a step_06.
 - **Comando Exato para o Próximo Agente:**
   ```bash
   .venv/bin/python -m src.colab_guard job-status --job warmup_mupe --job-dir /content/drive/MyDrive/parakeet_ptbr/jobs --tail 40

@@ -182,21 +182,22 @@ def test_export_lhotse_cuts_merges_mirrored_pairs_and_keeps_clean_lines(tmp_path
     cuts = [json.loads(line) for line in open(cuts_path, encoding="utf-8")]
 
     assert cuts_path.endswith("multitalker_train_manifest_cuts.jsonl")
-    assert num_cuts == len(cuts) == 3
-    assert len({c["id"] for c in cuts}) == 3
+    # 1 cut por linha do manifesto: o par espelhado vira 2 cuts (composição 70/30 por amostra, Spec 02 §3.7)
+    assert num_cuts == len(cuts) == 4
+    assert len({c["id"] for c in cuts}) == 4
 
-    mix_cut = cuts[0]
-    assert mix_cut["type"] == "MonoCut"
-    assert mix_cut["custom"] == {}
-    assert mix_cut["duration"] == 3.0
-    assert mix_cut["recording"]["sources"][0]["source"].endswith("mix_000000.wav")
-    assert mix_cut["recording"]["num_samples"] == 48000
-    sup_a, sup_b = mix_cut["supervisions"]
-    assert (sup_a["speaker"], sup_a["text"], sup_a["start"], sup_a["duration"]) == ("spk_A", "Bom dia pessoal.", 0.0, 2.4)
-    assert (sup_b["speaker"], sup_b["text"], sup_b["start"], sup_b["duration"]) == ("spk_B", "O relatório já saiu?", 0.96, 2.04)
-    assert all(s["recording_id"] == mix_cut["recording"]["id"] and s["language"] == "pt" for s in (sup_a, sup_b))
+    for mix_cut in cuts[:2]:
+        assert mix_cut["type"] == "MonoCut"
+        assert mix_cut["custom"] == {}
+        assert mix_cut["duration"] == 3.0
+        assert mix_cut["recording"]["sources"][0]["source"].endswith("mix_000000.wav")
+        assert mix_cut["recording"]["num_samples"] == 48000
+        sup_a, sup_b = mix_cut["supervisions"]
+        assert (sup_a["speaker"], sup_a["text"], sup_a["start"], sup_a["duration"]) == ("spk_A", "Bom dia pessoal.", 0.0, 2.4)
+        assert (sup_b["speaker"], sup_b["text"], sup_b["start"], sup_b["duration"]) == ("spk_B", "O relatório já saiu?", 0.96, 2.04)
+        assert all(s["recording_id"] == mix_cut["recording"]["id"] and s["language"] == "pt" for s in (sup_a, sup_b))
 
-    for clean_cut in cuts[1:]:
+    for clean_cut in cuts[2:]:
         assert len(clean_cut["supervisions"]) == 1
         sup = clean_cut["supervisions"][0]
         assert (sup["speaker"], sup["start"], sup["duration"]) == ("spk_C", 0.0, 1.6)
@@ -216,3 +217,41 @@ def test_export_lhotse_cuts_rejects_unpaired_mix_line(tmp_path):
     _write_manifest(manifest, _mixed_pair_entries(tmp_path)[:1])
     with pytest.raises(ValueError, match="par espelhado"):
         export_lhotse_cuts(str(manifest))
+
+
+def test_train_and_val_mixtures_in_same_dir_do_not_overwrite(tmp_path):
+    clean_manifest = tmp_path / "clean_manifest.json"
+    lines = []
+    for idx, spk in enumerate(["spk_1", "spk_2", "spk_3"]):
+        wav_path = tmp_path / f"c_{idx}.wav"
+        sf.write(str(wav_path), _generate_sine_voice(1.0 + 0.4 * idx, freq_hz=200.0 + 50.0 * idx, amp=0.5), REQUIRED_SAMPLE_RATE)
+        lines.append(
+            SingleSpeakerManifestEntry.from_clean_audio(
+                audio_filepath=str(wav_path), duration=1.0 + 0.4 * idx, text=f"Frase {idx}.", speaker_id=spk
+            ).model_dump_json()
+        )
+    clean_manifest.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    out_dir = tmp_path / "local_dataset"
+    manifests = {}
+    for split, seed in (("train", 1), ("val", 2)):
+        manifests[split] = out_dir / f"multitalker_{split}_manifest.json"
+        generate_mixed_dataset_from_manifest(
+            clean_manifest_path=str(clean_manifest),
+            output_dir=str(out_dir),
+            output_manifest_path=str(manifests[split]),
+            num_mixtures=3,
+            seed=seed,
+        )
+
+    paths = {
+        split: [json.loads(l)["audio_filepath"] for l in m.read_text(encoding="utf-8").splitlines()]
+        for split, m in manifests.items()
+    }
+    assert set(paths["train"]).isdisjoint(paths["val"])
+    assert all(p.split("/")[-1].startswith("mix_multitalker_train_manifest_") for p in paths["train"])
+    assert len(list((out_dir / "wavs").glob("mix_*.wav"))) == 6
+    # A duração gravada no manifesto de treino continua batendo com o WAV em disco
+    for line in manifests["train"].read_text(encoding="utf-8").splitlines():
+        rec = json.loads(line)
+        assert abs(sf.info(rec["audio_filepath"]).duration - rec["duration"]) < 1e-3

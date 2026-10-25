@@ -269,8 +269,8 @@ def ensure_colab_dataset_ready(
     local_dataset_dir: str = "/content/local_dataset",
     drive_root_dir: str = "/content/drive/MyDrive/parakeet_ptbr",
     max_samples: Optional[int] = None,
-    num_train_mixtures: int = 1000,
-    num_val_mixtures: int = 200,
+    num_train_mixtures: int = 50000,
+    num_val_mixtures: int = 500,
     clean_ratio: float = 0.30,
     val_stride: int = 1,
     update_state: bool = False,
@@ -458,8 +458,8 @@ def main() -> None:
     )
     parser.add_argument("--local_dataset_dir", default="/content/local_dataset")
     parser.add_argument("--drive_root_dir", default="/content/drive/MyDrive/parakeet_ptbr")
-    parser.add_argument("--num_train_mixtures", type=int, default=1000)
-    parser.add_argument("--num_val_mixtures", type=int, default=200)
+    parser.add_argument("--num_train_mixtures", type=int, default=50000)
+    parser.add_argument("--num_val_mixtures", type=int, default=500)
     parser.add_argument("--val_stride", type=int, default=1, help="Mantém 1 a cada N amostras da validação (Spec 01 §2.3).")
     parser.add_argument("--no_resume", action="store_true", help="Desativa retomada incremental e recria o manifesto do zero.")
     parser.add_argument("--update_state", action="store_true", help="Atualiza state/pipeline_state.json e USER.md.")
