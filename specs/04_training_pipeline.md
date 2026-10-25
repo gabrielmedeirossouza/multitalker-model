@@ -75,6 +75,12 @@ Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` execu
 2. Valida o relatório de métricas via contrato `EvaluationReport` (`src/schemas.py`), exigindo `clean_wer` e `multitalker_wer` no intervalo `[0.0, 1.0]`, contagens de amostras avaliadas `> 0` e verificação do artefato `.nemo` exportado.
 3. Atualiza `step_07_eval_and_export` para `completed` em `state/pipeline_state.json` e `USER.md`.
 
+Condicionamento por locutor (NeMo 3.0):
+- O `transcribe()` do `EncDecMultiTalkerRNNTBPEModel` monta o dataset com `inference_mode=True`: `spk_targets` chega `None`, o *speaker kernel* assume máscara de alvo toda em 1 e de fundo em 0, e a mistura inteira é tratada como fala do alvo. Por isso o avaliador **não** usa `transcribe()`.
+- `unique_eval_cuts()` aplica a conversão da Spec 02 §3.7 ao manifesto e descarta a 2ª cópia de cada par espelhado; para cada cut, as máscaras vêm do `speaker_to_target()` do NeMo (o mesmo caminho do treino) e o modelo decodifica **uma vez por locutor**: `set_speaker_targets(alvo, demais)` → `forward` → `decoding.rnnt_decoder_predictions_tensor`, comparando com o texto daquele locutor. Fala limpa usa o mesmo caminho (1 locutor: alvo = 1, fundo = 0). O número de amostras avaliadas é o de linhas do manifesto.
+- O relatório traz também o WER normalizado (`normalize_for_wer`: minúsculas, pontuação trocada por espaço), porque as referências do CORAA-MUPE têm caixa e pontuação: `clean_wer_normalized` e `multitalker_wer_normalized`.
+- `--max_lines N` limita cada manifesto às primeiras `N` linhas (teste de fumaça na VM).
+
 ---
 
 ## 7. Critérios de Aceite
@@ -94,6 +100,7 @@ Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` execu
   12. `align_max_steps_to_val_interval()` arredonda `max_steps` para o próximo múltiplo de um `val_check_interval` inteiro e não altera o valor com `val_check_interval: 1.0` (fim de época); com `check_val_every_n_epoch: null`, o YAML define `val_check_interval` inteiro `> 1` (§8.4).
   13. Na Fase 2, `configure_multitalker_cuts()` substitui `manifest_filepath` por `cuts_path` em `train_ds` e `validation_ds` e retorna o número de cuts de treino (§8.2).
   14. `install_fast_grad_guard()` desliga o `_skip_nan_grad` do NeMo, preserva o `on_before_optimizer_step` original, zera os gradientes quando a norma total não é finita e recorta a norma em `clip_val`; com `optim.fused: true` (YAML da Fase 2), `split_fused_gradient_clipping()` tira `gradient_clip_val` do `trainer` e o devolve; sem `fused` (Fase 1), não altera nada (§8.6).
+  15. `unique_eval_cuts()` produz 1 cut por mistura (sem a cópia do par espelhado) e 1 por linha limpa, com total de locutores-alvo igual ao número de linhas do manifesto; `normalize_for_wer()` remove caixa e pontuação; `EvaluationReport` aceita os campos normalizados opcionais (§6).
 
 ---
 

@@ -7,7 +7,7 @@
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
 - **Status Geral:** 🔄 Em Execução por Agente
 - **Etapa Atual:** `step_06_colab_stage2_multitalker` — Treinamento Fase 2 (Multitalker Cache-Aware + Speaker Kernels) na GPU A100 (`colab_a100`)
-- **Última Atualização (UTC):** `2026-10-25T04:08:17Z`
+- **Última Atualização (UTC):** `2026-10-25T04:40:19Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 

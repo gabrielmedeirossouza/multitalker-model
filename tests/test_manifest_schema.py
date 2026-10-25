@@ -26,7 +26,7 @@ from src.data_prep import (
     pack_dataset_for_colab_ssd,
     rewrite_manifest_audio_paths,
 )
-from src.evaluator import compute_word_error_rate
+from src.evaluator import compute_word_error_rate, normalize_for_wer, unique_eval_cuts
 from src.trainer import (
     align_max_steps_to_val_interval,
     apply_stage_optimizations_to_nemo_model,
@@ -440,6 +440,34 @@ def test_evaluator_wer_and_report_contract():
         evaluated_at="2026-10-24T12:00:00Z",
     )
     assert report.clean_wer == 0.08
+    assert report.multitalker_wer_normalized is None
+    assert EvaluationReport(**{**report.model_dump(), "multitalker_wer_normalized": 0.1}).multitalker_wer_normalized == 0.1
+
+
+def test_normalize_for_wer_drops_case_and_punctuation():
+    assert normalize_for_wer("Eh, você falou: guarda-chuva?  Né!") == "eh você falou guarda chuva né"
+    raw = compute_word_error_rate(["Bom dia, pessoal."], ["bom dia pessoal"])
+    norm = compute_word_error_rate([normalize_for_wer("Bom dia, pessoal.")], [normalize_for_wer("bom dia pessoal")])
+    assert raw > 0.0 and norm == 0.0
+
+
+def test_unique_eval_cuts_decodes_each_speaker_once():
+    def mix_line(text, spk, mask, bg):
+        return MultitalkerManifestEntry(
+            audio_filepath="/content/local_dataset/wavs/mix_multitalker_val_manifest_000000.wav",
+            duration=1.6, text=text, speaker_id=spk, spk_targets=mask, bg_spk_targets=bg,
+        )
+
+    mask_a, mask_b = [1] * 12 + [0] * 8, [0] * 6 + [1] * 14
+    clean = SingleSpeakerManifestEntry.from_clean_audio(
+        audio_filepath="/content/local_dataset/wavs/coraa_mupe_validation_0000001.wav", duration=1.6, text="Limpa.", speaker_id="spk_C"
+    )
+    entries = [mix_line("Fala A.", "spk_A", mask_a, mask_b), mix_line("Fala B.", "spk_B", mask_b, mask_a), clean, clean]
+
+    cuts = unique_eval_cuts(entries)
+    assert [len(c.supervisions) for c in cuts] == [2, 1, 1]
+    assert sum(len(c.supervisions) for c in cuts) == len(entries)
+    assert [s.text for s in cuts[0].supervisions] == ["Fala A.", "Fala B."]
 
 
 def test_ensure_colab_dataset_ready_fast_path_extracts_existing_tar(tmp_path):

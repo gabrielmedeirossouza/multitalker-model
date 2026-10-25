@@ -292,6 +292,9 @@ class EvaluationReport(BaseModel):
     multitalker_samples_evaluated: int = Field(..., ge=1)
     clean_wer: float = Field(..., ge=0.0, le=2.0)
     multitalker_wer: float = Field(..., ge=0.0, le=2.0)
+    # Sem caixa e pontuação (Spec 04 §6): as referências do CORAA-MUPE têm ambas
+    clean_wer_normalized: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    multitalker_wer_normalized: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     evaluated_at: str = Field(..., min_length=1)
 
 

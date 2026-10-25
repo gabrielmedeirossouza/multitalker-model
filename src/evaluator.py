@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Any, Iterable, List, Optional, Tuple
 
-from src.schemas import EvaluationReport
+from src.mixer import manifest_entries_to_cuts
+from src.schemas import EvaluationReport, MultitalkerCut, MultitalkerManifestEntry
 from src.state import utc_now_iso
 from src.trainer import preflight_validate_manifest
 
@@ -56,10 +58,96 @@ def compute_word_error_rate(references: Iterable[str], hypotheses: Iterable[str]
     return round(min(2.0, total_edits / total_words), 4)
 
 
-def _load_manifest_entries(manifest_path: str) -> List[dict]:
+def normalize_for_wer(text: str) -> str:
+    """Minúsculas e pontuação trocada por espaço: as referências do CORAA-MUPE têm caixa e pontuação (Spec 04 §6)."""
+    return " ".join(re.sub(r"[^\w\s]", " ", text.lower()).split())
+
+
+def unique_eval_cuts(entries: List[MultitalkerManifestEntry]) -> List[MultitalkerCut]:
+    """
+    Cuts da Spec 02 §3.7 sem a 2ª cópia de cada par espelhado: cada mistura é decodificada uma vez por
+    locutor e cada linha limpa uma vez (Spec 04 §6).
+    """
+    unique: List[MultitalkerCut] = []
+    for cut in manifest_entries_to_cuts(entries):
+        prev = unique[-1] if unique else None
+        if (
+            prev is not None
+            and len(cut.supervisions) > 1
+            and prev.audio_filepath == cut.audio_filepath
+            and prev.supervisions == cut.supervisions
+        ):
+            continue
+        unique.append(cut)
+    return unique
+
+
+def decode_per_target_speaker(
+    asr_model: Any,
+    cuts: List[MultitalkerCut],
+    batch_size: int = 16,
+) -> Tuple[List[str], List[str]]:
+    """
+    Decodifica cada locutor de cada cut condicionado pelas máscaras do speaker_to_target() do NeMo, o mesmo
+    caminho do treino; o transcribe() ignora os alvos (inference_mode). Retorna (referências, hipóteses).
+    """
+    import torch
+    from lhotse import CutSet
+    from lhotse.dataset.collation import collate_vectors
+    from nemo.collections.asr.parts.utils.asr_multispeaker_utils import speaker_to_target
+
+    device = next(asr_model.parameters()).device
+    refs: List[str] = []
+    hyps: List[str] = []
+    batch: List[Tuple[Any, Any, Any, str]] = []
+
+    def flush() -> None:
+        audios, spks, bgs, texts = zip(*batch)
+        signal = collate_vectors(audios, padding_value=0.0).to(device)
+        lengths = torch.tensor([a.shape[0] for a in audios], dtype=torch.long, device=device)
+        asr_model.set_speaker_targets(
+            collate_vectors(spks, padding_value=0.0).to(device), collate_vectors(bgs, padding_value=0.0).to(device)
+        )
+        with torch.inference_mode():
+            encoded, encoded_len = asr_model.forward(input_signal=signal, input_signal_length=lengths)
+            out = asr_model.decoding.rnnt_decoder_predictions_tensor(encoder_output=encoded, encoded_lengths=encoded_len)
+        if isinstance(out, tuple):
+            out = out[0]
+        hyps.extend(h.text if hasattr(h, "text") else str(h) for h in out)
+        refs.extend(texts)
+        batch.clear()
+
+    for cut in CutSet.from_dicts(c.to_lhotse_dict() for c in cuts):
+        audio = torch.as_tensor(cut.load_audio()[0], dtype=torch.float32)
+        masks, texts = speaker_to_target(
+            cut, num_speakers=4, num_sample_per_mel_frame=160, num_mel_frame_per_asr_frame=8, return_text=True
+        )
+        masks = masks.transpose(0, 1)[: len(texts)].float()
+        for idx, text in enumerate(texts):
+            others = [j for j in range(len(texts)) if j != idx]
+            bg = (masks[others].sum(dim=0) > 0).float() if others else torch.zeros_like(masks[idx])
+            batch.append((audio, masks[idx], bg, text))
+            if len(batch) >= batch_size:
+                flush()
+    if batch:
+        flush()
+    asr_model.clear_speaker_targets()
+    return refs, hyps
+
+
+def _load_manifest_entries(manifest_path: str, max_lines: Optional[int] = None) -> List[MultitalkerManifestEntry]:
     preflight_validate_manifest(manifest_path, max_lines_to_check=0, check_audio_files_exist=False)
     with open(manifest_path, "r", encoding="utf-8") as f:
-        return [json.loads(line) for line in f if line.strip()]
+        entries = [MultitalkerManifestEntry.model_validate_json(line) for line in f if line.strip()]
+    if max_lines and max_lines < len(entries):
+        entries = entries[:max_lines]
+        last = entries[-1]
+        # Não corta um par espelhado ao meio (Spec 02 §3.7)
+        if Path(last.audio_filepath).name.startswith("mix_") and (
+            len(entries) < 2 or entries[-2].audio_filepath != last.audio_filepath
+        ):
+            entries = entries[:-1]
+    return entries
 
 
 def evaluate_nemo_checkpoint(
@@ -70,6 +158,7 @@ def evaluate_nemo_checkpoint(
     batch_size: int = 16,
     export_nemo_path: Optional[str] = None,
     update_state: bool = False,
+    max_lines: Optional[int] = None,
 ) -> EvaluationReport:
     """
     Carrega o modelo .nemo final da Fase 2, avalia o WER em fala limpa e em fala sobreposta
@@ -94,30 +183,27 @@ def evaluate_nemo_checkpoint(
         if not nemo_file.exists():
             raise FileNotFoundError(f"Arquivo de modelo .nemo não encontrado: {nemo_file}")
 
-        clean_records = _load_manifest_entries(clean_manifest_path)
-        multi_records = _load_manifest_entries(multitalker_manifest_path)
+        clean_records = _load_manifest_entries(clean_manifest_path, max_lines)
+        multi_records = _load_manifest_entries(multitalker_manifest_path, max_lines)
 
         import nemo.collections.asr as nemo_asr
 
         asr_model = nemo_asr.models.ASRModel.restore_from(str(nemo_file))
         asr_model.eval()
 
-        clean_files = [r["audio_filepath"] for r in clean_records]
-        clean_refs = [r["text"] for r in clean_records]
-        clean_hyps = asr_model.transcribe(clean_files, batch_size=batch_size)
-        if isinstance(clean_hyps, tuple):
-            clean_hyps = clean_hyps[0]
-        clean_hyps_str = [h.text if hasattr(h, "text") else str(h) for h in clean_hyps]
-
-        multi_files = [r["audio_filepath"] for r in multi_records]
-        multi_refs = [r["text"] for r in multi_records]
-        multi_hyps = asr_model.transcribe(multi_files, batch_size=batch_size)
-        if isinstance(multi_hyps, tuple):
-            multi_hyps = multi_hyps[0]
-        multi_hyps_str = [h.text if hasattr(h, "text") else str(h) for h in multi_hyps]
+        clean_refs, clean_hyps_str = decode_per_target_speaker(asr_model, unique_eval_cuts(clean_records), batch_size)
+        multi_refs, multi_hyps_str = decode_per_target_speaker(asr_model, unique_eval_cuts(multi_records), batch_size)
 
         clean_wer = compute_word_error_rate(clean_refs, clean_hyps_str)
         multi_wer = compute_word_error_rate(multi_refs, multi_hyps_str)
+        clean_wer_norm = compute_word_error_rate(
+            [normalize_for_wer(t) for t in clean_refs], [normalize_for_wer(t) for t in clean_hyps_str]
+        )
+        multi_wer_norm = compute_word_error_rate(
+            [normalize_for_wer(t) for t in multi_refs], [normalize_for_wer(t) for t in multi_hyps_str]
+        )
+        for ref, hyp in list(zip(multi_refs, multi_hyps_str))[:6]:
+            print(f"[Step 07] REF: {ref}\n[Step 07] HYP: {hyp}")
 
         final_model_path = str(nemo_file)
         if export_nemo_path:
@@ -130,10 +216,12 @@ def evaluate_nemo_checkpoint(
             model_path=final_model_path,
             clean_manifest_path=clean_manifest_path,
             multitalker_manifest_path=multitalker_manifest_path,
-            clean_samples_evaluated=len(clean_records),
-            multitalker_samples_evaluated=len(multi_records),
+            clean_samples_evaluated=len(clean_refs),
+            multitalker_samples_evaluated=len(multi_refs),
             clean_wer=clean_wer,
             multitalker_wer=multi_wer,
+            clean_wer_normalized=clean_wer_norm,
+            multitalker_wer_normalized=multi_wer_norm,
             evaluated_at=utc_now_iso(),
         )
 
@@ -163,8 +251,10 @@ def evaluate_nemo_checkpoint(
                 metrics={
                     "clean_wer": clean_wer,
                     "multitalker_wer": multi_wer,
-                    "clean_samples": len(clean_records),
-                    "multitalker_samples": len(multi_records),
+                    "clean_wer_normalized": clean_wer_norm,
+                    "multitalker_wer_normalized": multi_wer_norm,
+                    "clean_samples": len(clean_refs),
+                    "multitalker_samples": len(multi_refs),
                 },
             )
 
@@ -187,6 +277,7 @@ def main() -> None:
     parser.add_argument("--output_report", required=True, help="Caminho de saída para o JSON EvaluationReport.")
     parser.add_argument("--export_nemo_path", default=None, help="Caminho opcional para exportar o .nemo final.")
     parser.add_argument("--batch_size", type=int, default=16)
+    parser.add_argument("--max_lines", type=int, default=None, help="Avalia só as primeiras N linhas de cada manifesto.")
     parser.add_argument("--update_state", action="store_true", help="Atualiza state/pipeline_state.json e USER.md.")
     args = parser.parse_args()
 
@@ -198,8 +289,12 @@ def main() -> None:
         batch_size=args.batch_size,
         export_nemo_path=args.export_nemo_path,
         update_state=args.update_state,
+        max_lines=args.max_lines,
     )
-    print(f"[Spec 04 / Step 07] Avaliação concluída: clean_wer={report.clean_wer}, multitalker_wer={report.multitalker_wer}")
+    print(
+        f"[Spec 04 / Step 07] Avaliação concluída: clean_wer={report.clean_wer} ({report.clean_wer_normalized} normalizado), "
+        f"multitalker_wer={report.multitalker_wer} ({report.multitalker_wer_normalized} normalizado)"
+    )
 
 
 if __name__ == "__main__":
