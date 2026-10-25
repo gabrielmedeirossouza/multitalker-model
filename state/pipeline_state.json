@@ -1,7 +1,7 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-25T03:44:32Z",
+  "updated_at": "2026-10-25T04:08:17Z",
   "overall_status": "in_progress",
   "current_step_id": "step_06_colab_stage2_multitalker",
   "steps": [
@@ -133,7 +133,8 @@
       "metrics": {
         "batches_per_sec_v1": "2.93",
         "gpu_util_v1": "0.5",
-        "max_steps": "53628"
+        "max_steps": "53628",
+        "batches_per_sec_v2": "3.47"
       },
       "notes": null
     },
@@ -189,8 +190,8 @@
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Fase 2 iniciada às 03:35 UTC (142.866 cuts de treino / 1.000 de validação, max_steps=53.628, 622 M treináveis) a ~2,9 lotes/s (~10 h). Perfil mostrou gargalo de CPU (skip_nan_grad por tensor + AdamW não fundido); correção implementada localmente e testada (69 testes + 1 com torch no Colab).",
-    "next_agent_action": "Após o push das otimizações de vazão (Spec 04 §8.6), encerrar o job multitalker_mupe (pouco progresso, ~2,9 lotes/s) e relançá-lo de /content/mt-prep com git pull; comparar lotes/s e utilização da GPU. Os checkpoints da Fase 2 só começam no fim da 1ª época.",
+    "last_agent_summary": "Fase 2 em andamento na A100 (142.866 cuts, max_steps=53.628). Otimizações de vazão: guard de NaN com 1 sync (+15%: 3,03 -> 3,47 lotes/s); AdamW fused pendente de push (Lightning exige recorte manual).",
+    "next_agent_action": "Job multitalker_mupe rodando desde ~04:05 UTC com /content/a100_multitalker_nofused.yaml (sem fused, guard de NaN ativo), ~3,47 lotes/s (~8,6 h). Após o push do guard em on_before_optimizer_step + split_fused_gradient_clipping, esperar o checkpoint do fim da época 0 (~04:50 UTC), dar job-kill e relançar sem --config (YAML do repo, fused) para retomar do -last.ckpt (resume_if_exists).",
     "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job multitalker_mupe --job-dir /content/jobs --tail 30",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
@@ -443,6 +444,22 @@
       "title": "Fase 2 limitada pela CPU: checagem skip_nan_grad por tensor (~23%) e AdamW não fundido (~30%)",
       "problem": "Fase 2 (622 M parâmetros treináveis, lote 16, acumulação 2) a ~2,9 lotes/s (~10 h para 12 épocas), GPU 38-55% e processo principal a 100% de um núcleo, workers do dataloader ociosos. py-spy: ~23% em ASRModel.on_after_backward, porque o checkpoint traz skip_nan_grad=true e o NeMo faz isnan/isinf .any() por parâmetro (1 sync GPU->CPU por tensor por micro-lote), e ~30% no passo do AdamW não fundido. Na Fase 1 (8,9 M treináveis) o custo era desprezível.",
       "solution": "install_fast_nan_grad_guard() (Spec 04 §8.6) desliga _skip_nan_grad e zera os gradientes se torch.nn.utils.get_total_norm não for finita (1 sync); optim.fused: true no a100_multitalker.yaml (o NeMo repassa chaves extras ao torch.optim.AdamW). Validado na VM: torch 2.11 tem get_total_norm e AdamW(fused=True) funciona. Para diagnosticar vazão: py-spy record --pid <trainer> --duration 15 --format raw + contagem de frames."
+    },
+    {
+      "id": "DISC-031",
+      "timestamp": "2026-10-25T04:08:07Z",
+      "category": "nemo_trainer",
+      "title": "Lightning recusa gradient_clip_val com AdamW fused; guard de gradientes movido para on_before_optimizer_step",
+      "problem": "Com optim.fused: true, o trainer da Fase 2 caiu no início: 'RuntimeError: The current optimizer, AdamW, does not allow for gradient clipping because it performs unscaling of gradients internally' (plugin de precisão mista do Lightning, mesmo em bf16). Além disso, o processo pendurou após o erro e precisou de job-kill. O install_fast_nan_grad_guard() do DISC-030 rodava por micro-lote.",
+      "solution": "split_fused_gradient_clipping() tira trainer.gradient_clip_val quando optim.fused e install_fast_grad_guard(asr_model, clip_val) faz, no on_before_optimizer_step (1x por passo do otimizador, após a acumulação), clip_grad_norm_ + checagem de finitude com uma sincronização, zerando os gradientes se a norma não for finita (Spec 04 §8.6). Validado na VM com Lightning real (bf16-mixed, acumulação 2, AdamW fused): normas recortadas em 1,0 e passo com NaN descartado. Enquanto o push não chega, a Fase 2 roda com /content/a100_multitalker_nofused.yaml (--config, sem fused): 3,47 lotes/s e GPU 58-89% (antes 3,03 lotes/s e 38-55%)."
+    },
+    {
+      "id": "DISC-032",
+      "timestamp": "2026-10-25T04:08:17Z",
+      "category": "colab_io",
+      "title": "--update_state na VM suja state/ e USER.md do clone e quebra o git pull seguinte",
+      "problem": "O trainer com --update_state grava start_step/fail_step em state/pipeline_state.json e USER.md do clone na VM; o relançamento seguinte com 'git pull' abortou ('Your local changes ... would be overwritten by merge') e o job saiu em ~1 s sem treinar.",
+      "solution": "Nos comandos de launch que reutilizam um clone na VM, rodar 'git checkout -- USER.md state/ && git pull -q' (o estado de referência é o do Mac, atualizado via src.state; a VM só espelha no Drive). Conferir o log logo após o launch: falha de git aparece antes do pytest."
     }
   ]
 }

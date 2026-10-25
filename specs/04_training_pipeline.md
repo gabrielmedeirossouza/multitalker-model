@@ -93,7 +93,7 @@ Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` execu
   11. `snapshot_vocab_independent_weights()` / `restore_vocab_independent_weights()` copiam somente a *allowlist* `joint.enc.*`, `joint.pred.*` e `decoder.prediction.dec_rnn.*`, nunca `embed`/`joint_net`, mesmo com shapes iguais (§5.6).
   12. `align_max_steps_to_val_interval()` arredonda `max_steps` para o próximo múltiplo de um `val_check_interval` inteiro e não altera o valor com `val_check_interval: 1.0` (fim de época); com `check_val_every_n_epoch: null`, o YAML define `val_check_interval` inteiro `> 1` (§8.4).
   13. Na Fase 2, `configure_multitalker_cuts()` substitui `manifest_filepath` por `cuts_path` em `train_ds` e `validation_ds` e retorna o número de cuts de treino (§8.2).
-  14. `install_fast_nan_grad_guard()` desliga o `_skip_nan_grad` do NeMo, preserva o `on_after_backward` original e zera os gradientes quando a norma total não é finita; o YAML da Fase 2 define `optim.fused: true` (§8.6).
+  14. `install_fast_grad_guard()` desliga o `_skip_nan_grad` do NeMo, preserva o `on_before_optimizer_step` original, zera os gradientes quando a norma total não é finita e recorta a norma em `clip_val`; com `optim.fused: true` (YAML da Fase 2), `split_fused_gradient_clipping()` tira `gradient_clip_val` do `trainer` e o devolve; sem `fused` (Fase 1), não altera nada (§8.6).
 
 ---
 
@@ -161,5 +161,5 @@ Primeira execução da Fase 2 (CORAA-MUPE, A100-80GB, lote 16, acumulação 2): 
 - **~30% no passo do `AdamW`** não fundido.
 
 Regras:
-- `install_fast_nan_grad_guard()` (ambas as fases, após `apply_stage_optimizations_to_nemo_model`) desliga o `_skip_nan_grad` do NeMo e mantém a proteção com **uma única** sincronização: norma total dos gradientes (`torch.nn.utils.get_total_norm`); se não for finita, zera os gradientes, como o NeMo faria.
-- `optim.fused: true` no YAML da Fase 2 (o NeMo repassa as chaves extras de `optim` ao `torch.optim.AdamW`).
+- `install_fast_grad_guard()` (ambas as fases, após `apply_stage_optimizations_to_nemo_model`) desliga o `_skip_nan_grad` do NeMo e faz a proteção no `on_before_optimizer_step`, **uma vez por passo do otimizador** (após a acumulação): calcula a norma total dos gradientes com uma única sincronização; se não for finita, zera os gradientes (o passo é descartado, como o NeMo faria). Com `clip_val`, a mesma chamada (`torch.nn.utils.clip_grad_norm_`) aplica o recorte de norma.
+- `optim.fused: true` no YAML da Fase 2 (o NeMo repassa as chaves extras de `optim` ao `torch.optim.AdamW`). O plugin de precisão mista do Lightning **recusa** `gradient_clip_val` com otimizador *fused* (`RuntimeError: ... does not allow for gradient clipping because it performs unscaling of gradients internally`), mesmo em bf16. Por isso `split_fused_gradient_clipping()` remove `trainer.gradient_clip_val` quando `optim.fused` é verdadeiro e o devolve como `clip_val` do `install_fast_grad_guard()` — o YAML continua declarando o recorte.

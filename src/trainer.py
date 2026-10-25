@@ -256,29 +256,45 @@ def configure_multitalker_cuts(
     return num_train_cuts
 
 
-def install_fast_nan_grad_guard(asr_model: Any) -> bool:
+def split_fused_gradient_clipping(raw_cfg: Dict[str, Any]) -> Optional[float]:
     """
-    O checkpoint traz skip_nan_grad=true e o NeMo testa isnan/isinf parâmetro a parâmetro (1 sincronização
-    GPU->CPU por tensor, ~23% do tempo da Fase 2). Mantém a proteção com uma única sincronização: norma total
-    dos gradientes; se não for finita, zera os gradientes como o NeMo faria (Spec 04 §8.6).
+    O Lightning recusa gradient_clip_val com otimizador fused (mesmo em bf16): com optim.fused, tira o recorte
+    do trainer e o devolve para o install_fast_grad_guard() aplicar (Spec 04 §8.6).
     """
-    if not getattr(asr_model, "_skip_nan_grad", False):
+    if not raw_cfg.get("model", {}).get("optim", {}).get("fused"):
+        return None
+    clip_val = raw_cfg["trainer"].pop("gradient_clip_val", None)
+    return float(clip_val) if clip_val else None
+
+
+def install_fast_grad_guard(asr_model: Any, clip_val: Optional[float] = None) -> bool:
+    """
+    O checkpoint traz skip_nan_grad=true e o NeMo testa isnan/isinf parâmetro a parâmetro a cada micro-lote
+    (1 sincronização GPU->CPU por tensor, ~23% do tempo da Fase 2). Mantém a proteção uma vez por passo do
+    otimizador, com uma única sincronização: se a norma total não for finita, zera os gradientes como o NeMo
+    faria; com clip_val, a mesma chamada recorta a norma (Spec 04 §8.6).
+    """
+    if not getattr(asr_model, "_skip_nan_grad", False) and clip_val is None:
         return False
     asr_model._skip_nan_grad = False
-    nemo_on_after_backward = asr_model.on_after_backward
+    lightning_on_before_optimizer_step = asr_model.on_before_optimizer_step
 
-    def on_after_backward() -> None:
-        nemo_on_after_backward()
-        grads = [p.grad for p in asr_model.parameters() if p.grad is not None]
-        if not grads:
+    def on_before_optimizer_step(optimizer: Any) -> None:
+        lightning_on_before_optimizer_step(optimizer)
+        params = [p for p in asr_model.parameters() if p.grad is not None]
+        if not params:
             return
         import torch
 
-        if not bool(torch.isfinite(torch.nn.utils.get_total_norm(grads))):
+        if clip_val:
+            total_norm = torch.nn.utils.clip_grad_norm_(params, clip_val)
+        else:
+            total_norm = torch.nn.utils.get_total_norm([p.grad for p in params])
+        if not bool(torch.isfinite(total_norm)):
             print("[Spec 04 §8.6] Gradientes com NaN/Inf: passo descartado (gradientes zerados).")
             asr_model.zero_grad()
 
-    asr_model.on_after_backward = on_after_backward
+    asr_model.on_before_optimizer_step = on_before_optimizer_step
     return True
 
 
@@ -446,6 +462,7 @@ def run_nemo_training(
         import nemo.collections.asr as nemo_asr
         from nemo.utils.exp_manager import exp_manager
 
+        fused_clip_val = split_fused_gradient_clipping(raw_cfg)
         trainer = pl.Trainer(**raw_cfg["trainer"])
         exp_manager(trainer, OmegaConf.create(raw_cfg["exp_manager"]))
 
@@ -468,7 +485,7 @@ def run_nemo_training(
                 )
             apply_stage_optimizations_to_nemo_model(asr_model, raw_cfg, stage="warmup")
             rebuild_rnnt_loss_from_cfg(asr_model)
-            install_fast_nan_grad_guard(asr_model)
+            install_fast_grad_guard(asr_model, clip_val=fused_clip_val)
             asr_model.encoder.freeze()
             frozen_kernel_tensors = freeze_speaker_kernels(asr_model)
             trainable = sum(p.numel() for p in asr_model.parameters() if p.requires_grad)
@@ -486,7 +503,7 @@ def run_nemo_training(
             )
             apply_stage_optimizations_to_nemo_model(asr_model, raw_cfg, stage="multitalker")
             rebuild_rnnt_loss_from_cfg(asr_model)
-            install_fast_nan_grad_guard(asr_model)
+            install_fast_grad_guard(asr_model, clip_val=fused_clip_val)
             asr_model.encoder.unfreeze()
             print("[Spec 04 - Multitalker] Modelo completo DESCONGELADO com Speaker Kernels e Cache-Aware ativos.")
 

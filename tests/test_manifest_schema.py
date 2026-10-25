@@ -33,12 +33,13 @@ from src.trainer import (
     compute_max_steps,
     configure_multitalker_cuts,
     freeze_speaker_kernels,
-    install_fast_nan_grad_guard,
+    install_fast_grad_guard,
     load_and_validate_stage_config,
     preflight_validate_manifest,
     resolve_nemo_checkpoint_path,
     restore_vocab_independent_weights,
     snapshot_vocab_independent_weights,
+    split_fused_gradient_clipping,
 )
 
 
@@ -558,7 +559,7 @@ def test_export_val_stride_keeps_one_every_k(tmp_path):
     assert texts == ["Frase número 0.", "Frase número 4.", "Frase número 8."]
 
 
-def test_install_fast_nan_grad_guard_replaces_per_tensor_check():
+def test_install_fast_grad_guard_replaces_per_tensor_check():
     calls = []
 
     class FakeModel:
@@ -567,34 +568,45 @@ def test_install_fast_nan_grad_guard_replaces_per_tensor_check():
         def parameters(self):
             return []
 
-        def on_after_backward(self):
-            calls.append("nemo")
+        def on_before_optimizer_step(self, optimizer):
+            calls.append(("lightning", optimizer))
 
         def zero_grad(self):
             calls.append("zero")
 
     model = FakeModel()
-    assert install_fast_nan_grad_guard(model) is True
+    assert install_fast_grad_guard(model, clip_val=1.0) is True
     assert model._skip_nan_grad is False
-    model.on_after_backward()
-    assert calls == ["nemo"]  # hook original preservado; sem gradientes, nada a zerar
-    assert install_fast_nan_grad_guard(model) is False
+    model.on_before_optimizer_step("opt")
+    assert calls == [("lightning", "opt")]  # hook original preservado; sem gradientes, nada a zerar
 
 
-def test_fast_nan_grad_guard_zeroes_non_finite_gradients():
+def test_fast_grad_guard_clips_and_zeroes_non_finite_gradients():
     torch = pytest.importorskip("torch")
     model = torch.nn.Linear(4, 2)
     model._skip_nan_grad = True
-    model.on_after_backward = lambda: None
-    assert install_fast_nan_grad_guard(model) is True
+    model.on_before_optimizer_step = lambda optimizer: None
+    assert install_fast_grad_guard(model, clip_val=0.5) is True
 
-    model(torch.ones(3, 4)).sum().backward()
-    model.on_after_backward()
-    assert model.weight.grad is not None and torch.isfinite(model.weight.grad).all()
+    (100.0 * model(torch.ones(3, 4))).sum().backward()
+    model.on_before_optimizer_step(None)
+    norm = torch.nn.utils.get_total_norm([p.grad for p in model.parameters()])
+    assert torch.isfinite(norm) and float(norm) <= 0.5 + 1e-4
 
     model.weight.grad[0, 0] = float("nan")
-    model.on_after_backward()
+    model.on_before_optimizer_step(None)
     assert model.weight.grad is None or not model.weight.grad.any()
+
+
+def test_split_fused_gradient_clipping_moves_clip_to_guard():
+    multi_cfg, _ = load_and_validate_stage_config("multitalker")
+    assert multi_cfg["model"]["optim"]["fused"] is True
+    assert split_fused_gradient_clipping(multi_cfg) == 1.0
+    assert "gradient_clip_val" not in multi_cfg["trainer"]
+
+    warmup_cfg, _ = load_and_validate_stage_config("warmup")
+    assert split_fused_gradient_clipping(warmup_cfg) is None
+    assert warmup_cfg["trainer"]["gradient_clip_val"] == 1.0
 
 
 def test_multitalker_config_uses_fused_adamw():
