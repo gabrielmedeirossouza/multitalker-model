@@ -1,8 +1,8 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-25T05:45:01Z",
-  "overall_status": "in_progress",
+  "updated_at": "2026-10-25T12:54:53Z",
+  "overall_status": "blocked_by_user",
   "current_step_id": "step_06_colab_stage2_multitalker",
   "steps": [
     {
@@ -138,7 +138,12 @@
         "val_wer_epoch_0": "0.5786",
         "batches_per_sec_fused": "4.0",
         "val_wer_step_8932": "0.5258",
-        "samples_per_sec_b32": "117"
+        "samples_per_sec_b32": "117",
+        "val_wer_step_13400": "0.5022",
+        "val_wer_step_22336": "0.4716",
+        "val_wer_step_26804": "0.4614",
+        "val_wer_step_35740": "0.4456",
+        "val_wer_step_44676": "0.4347"
       },
       "notes": null
     },
@@ -185,18 +190,18 @@
     },
     {
       "id": "blocker_colab_drive_auth",
-      "step_id": "step_05_colab_stage1_warmup",
+      "step_id": "step_06_colab_stage2_multitalker",
       "description": "Colab pediu interação humana (drive_auth) durante `bridge drive-mount`.",
-      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22HZ08-PPEPsE5JQle-aX_UzcIGUo%3A1792890677335%22%2C%22endpoint%22%3A%22gpu-a100-hm-ass1c0-3lowenm3tu1we%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
-      "created_at": "2026-10-25T01:11:17Z",
-      "resolved": true,
-      "resolved_at": "2026-10-25T01:13:15Z"
+      "user_action_required": "Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22CgvjWKNRqDWULGSHOPwa8FNiGhk%3A1792932874121%22%2C%22endpoint%22%3A%22m-hm-kkb-euw4b1-2o2er9mzcanng%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D",
+      "created_at": "2026-10-25T12:54:34Z",
+      "resolved": false,
+      "resolved_at": null
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Fase 2: val_wer 0,5786 (passo 4.466) -> 0,5258 (passo 8.932) em misturas por locutor-alvo. Vazão de 48 -> 117 amostras/s (guard de gradientes + lote 32 sem acumulação); término previsto ~09:15 UTC.",
-    "next_agent_action": "Acompanhar o job multitalker_mupe (lote 32, fused, guard; retomado às 05:34 UTC no passo 8.932, val_wer=0,5258) até max_steps=53.628 (~09:15 UTC); validação a cada ~20 min. Em caso de queda, relançar de /content/mt-prep com o YAML do repo (já lote 32) e --max_steps 53628 para retomar do -last.ckpt. Depois rodar a step_07 com src.evaluator (decodificação por locutor).",
-    "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job multitalker_mupe --job-dir /content/jobs --tail 30",
+    "last_agent_summary": "Fase 2: val_wer 0,5786 -> 0,5258 -> 0,5022 -> 0,4716 -> 0,4614 -> 0,4456 -> 0,4347 (passo 44.676, ~09:05 UTC). A VM A100 foi recolhida entre 10:37 e 12:53 UTC; falta confirmar no Drive se o treino chegou a 53.628 passos e salvou o .nemo.",
+    "next_agent_action": "Usuário autoriza o Drive na VM CPU nova (blocker_colab_drive_auth). Depois: inspecionar /content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/ (checkpoints/*.nemo, *-last.ckpt, nemo_log_globalrank-0.txt e state/ espelhado). Se o .nemo final existir e o log mostrar max_steps=53628 atingido: concluir a step_06 e rodar a step_07 numa VM com GPU (extrair o pacote, src.evaluator). Se não: relançar a Fase 2 numa A100 a partir do -last.ckpt com --max_steps 53628.",
+    "next_exact_command": ".venv/bin/python -m src.colab_guard drive",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
       "No ambiente local (Mac), use sempre os binários `.venv/bin/python` e `.venv/bin/pytest`.",
@@ -480,6 +485,14 @@
       "title": "Fase 2 presa no lançamento de kernels com lote 16; lote 32 sem acumulação = 1,84x",
       "problem": "Depois do guard de gradientes (DISC-030/031), a Fase 2 ficou em ~4,0 lotes/s de 16 (64 amostras/s), GPU 36-66%; o AdamW fused não trouxe ganho mensurável. py-spy: ~44% do tempo do processo principal sem frame Python (lançamento/espera de kernels): com lote 16, as operações por camada do FastConformer são pequenas para a A100.",
       "solution": "Lote 32 com accumulate_grad_batches 1 (mesmo lote efetivo e LR): 3,67 lotes/s = 117 amostras/s (1,84x), GPU 97%, 48,7 GB de 80 GB, sem OOM com bucketing aleatório. Época da Fase 2 de ~38 para ~20 min. Ao trocar o lote numa retomada, passar --max_steps igual ao da execução original (53.628) para não mexer no agendamento do LR (Spec 04 §8.6)."
+    },
+    {
+      "id": "DISC-035",
+      "timestamp": "2026-10-25T12:54:53Z",
+      "category": "colab_io",
+      "title": "VM A100 recolhida após a Fase 2 parar de ser monitorada (Mac dormiu); log local do job perdido",
+      "problem": "O watcher local consultava o job a cada 15 min; entre 10:37 e 12:53 UTC ele não rodou (Mac provavelmente em repouso) e, às 12:53, a sessão Colab não existia mais (session_not_found). A última validação registrada foi val_wer=0,4347 no passo 44.676 (~09:05 UTC); as validações em 49.144 e 53.628 não imprimiram 'reached' (sem melhora, ou o treino parou). O job seguia 'running' até 10:37, uma hora após o fim previsto (~09:45), o que é compatível com o processo pendurado na saída como no warmup (DISC-029). O log do job estava em /content/jobs (disco da VM) e se perdeu. Além disso, a detecção de log ocioso do watcher não funcionou (log_idle_sec não foi extraído).",
+      "solution": "Checkpoints, logs do NeMo (nemo_log_globalrank-0.txt) e o espelho de estado ficam no Drive em exp_coraa_mupe_multitalker/: inspecionar lá numa VM nova. Hipótese a confirmar: o Colab recolhe a VM quando o kernel fica sem execuções por um período (as chamadas de exec do agente funcionavam como keep-alive). Para jobs longos: copiar o log do job para o Drive periodicamente (ex.: cp a cada 10 min dentro do comando do launch) e garantir que o agente continue consultando; validar a extração de log_idle_sec no watcher."
     }
   ]
 }
