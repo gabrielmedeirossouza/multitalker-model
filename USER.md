@@ -5,9 +5,9 @@
 ## 1. Resumo Executivo
 
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
-- **Status Geral:** 🟢 Pronto para Iniciar / Continuar
+- **Status Geral:** ✅ Pipeline Finalizado
 - **Etapa Atual:** `step_07_eval_and_export` — Avaliação Final (WER Limpo e Sobreposto) e Exportação do Checkpoint .nemo (`colab_a100`)
-- **Última Atualização (UTC):** `2026-10-26T17:34:02Z`
+- **Última Atualização (UTC):** `2026-10-26T17:50:22Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
@@ -25,15 +25,15 @@
 | 4 | `step_04_pack_and_upload_drive` | `colab_cpu` | ✅ Concluído | `bundle_size_gb=26`, colab_bundle_tar_gz: `/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/ptbr_dataset_16khz.tar.gz` |
 | 5 | `step_05_colab_stage1_warmup` | `colab_a100` | ✅ Concluído | `val_wer_step_4000=0.7439`, `steps_per_sec=6.5`, `max_steps=24000`, `val_wer_step_8000=0.6720`, `val_wer_step_12000=0.6411`, `multitalker_train_lines=142866`, `multitalker_val_lines=1000`, `train_mixtures=50004`, `val_wer_final=0.6114`, warmup_checkpoint_dir: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup`, warmup_nemo: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo` |
 | 6 | `step_06_colab_stage2_multitalker` | `colab_a100` | ✅ Concluído | `batches_per_sec_v1=2.93`, `gpu_util_v1=0.5`, `max_steps=53628`, `batches_per_sec_v2=3.47`, `val_wer_epoch_0=0.5786`, `batches_per_sec_fused=4.0`, `val_wer_step_8932=0.5258`, `samples_per_sec_b32=117`, `val_wer_step_13400=0.5022`, `val_wer_step_22336=0.4716`, `val_wer_step_26804=0.4614`, `val_wer_step_35740=0.4456`, `val_wer_step_44676=0.4347`, `val_wer_best=0.4347`, `val_wer_epoch_11=0.4417`, multitalker_checkpoint_dir: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker`, multitalker_nemo: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker.nemo`, multitalker_best_ckpt: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker--val_wer=0.4347-epoch=7.ckpt`, multitalker_last_ckpt: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker--val_wer=0.4417-epoch=11-last.ckpt` |
-| 7 | `step_07_eval_and_export` | `colab_a100` | ⏳ Pendente | — |
+| 7 | `step_07_eval_and_export` | `colab_a100` | ✅ Concluído | `clean_wer=0.3622`, `clean_wer_normalized=0.2997`, `multitalker_wer=0.4646`, `multitalker_wer_normalized=0.4069`, `clean_samples=2242`, `multitalker_samples=1000`, final_nemo_model: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker.nemo`, eval_report: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/eval_report.json` |
 
 ## 4. Handover para o Próximo Agente de IA
 
-- **Resumo da Última Sessão:** Fase 2 concluída em 25/10 09:45 UTC (complete_step do trainer espelhado no Drive): 12 épocas, max_steps 53.628. Melhor val_wer 0,4347 (época 7, passo 44.676); última época 0,4417. O .nemo final (save_best_model, pesos da época 7) é um tar válido de 2,49 GB.
-- **Próxima Ação do Agente:** Rodar a step_07 na A100 'parakeet': launch que clona/atualiza o repo, instala deps, roda pytest, extrai o pacote coraa_mupe em /content/local_dataset (data_prep --ensure_colab_dataset SEM --update_state) e chama src.evaluator com --update_state; acompanhar com job-status --job eval_mupe e depois sincronizar o estado do Drive.
+- **Resumo da Última Sessão:** Step 07 concluída em 26/10 17:49 UTC na A100: clean_wer=0,3622 (0,2997 normalizado, 2.242 amostras) e multitalker_wer=0,4646 (0,4069 normalizado, 1.000 locutores-alvo em 500 misturas). Modelo final = .nemo da Fase 2 (melhor val_wer 0,4347, época 7). Avaliado nos manifestos de validação, os mesmos usados para escolher o checkpoint: números levemente otimistas.
+- **Próxima Ação do Agente:** Pipeline finalizado. Próximos passos opcionais: avaliar num conjunto de teste separado (o pacote coraa_mupe só tem train/val; o MUPE tem split test no HF) e, para melhorar o WER, ampliar o corpus ou treinar mais épocas.
 - **Comando Exato para o Próximo Agente:**
   ```bash
-  .venv/bin/python -m src.colab_guard job-status --job eval_mupe --tail 40
+  .venv/bin/python -m src.state status
   ```
 - **Alertas Técnicos Críticos:**
   - NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.

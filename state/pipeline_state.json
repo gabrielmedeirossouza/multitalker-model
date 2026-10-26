@@ -1,8 +1,8 @@
 {
   "project_name": "parakeet-ptbr-multitalker",
   "model_target": "nvidia/multitalker-parakeet-streaming-0.6b-v1",
-  "updated_at": "2026-10-26T17:34:02Z",
-  "overall_status": "ready",
+  "updated_at": "2026-10-26T17:50:22Z",
+  "overall_status": "completed",
   "current_step_id": "step_07_eval_and_export",
   "steps": [
     {
@@ -158,13 +158,23 @@
       "step_id": "step_07_eval_and_export",
       "title": "Avaliação Final (WER Limpo e Sobreposto) e Exportação do Checkpoint .nemo",
       "environment": "colab_a100",
-      "status": "pending",
-      "started_at": null,
-      "completed_at": null,
+      "status": "completed",
+      "started_at": "2026-10-26T17:50:22Z",
+      "completed_at": "2026-10-26T17:50:22Z",
       "last_command": null,
-      "artifacts": {},
-      "metrics": {},
-      "notes": null
+      "artifacts": {
+        "final_nemo_model": "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker.nemo",
+        "eval_report": "/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/eval_report.json"
+      },
+      "metrics": {
+        "clean_wer": "0.3622",
+        "clean_wer_normalized": "0.2997",
+        "multitalker_wer": "0.4646",
+        "multitalker_wer_normalized": "0.4069",
+        "clean_samples": "2242",
+        "multitalker_samples": "1000"
+      },
+      "notes": "Job eval_mupe: pip+pytest ~1 min, extração do pacote de ~36 GB do Drive ~12 min, avaliação ~2 min."
     }
   ],
   "blockers": [
@@ -206,9 +216,9 @@
     }
   ],
   "agent_handover": {
-    "last_agent_summary": "Fase 2 concluída em 25/10 09:45 UTC (complete_step do trainer espelhado no Drive): 12 épocas, max_steps 53.628. Melhor val_wer 0,4347 (época 7, passo 44.676); última época 0,4417. O .nemo final (save_best_model, pesos da época 7) é um tar válido de 2,49 GB.",
-    "next_agent_action": "Rodar a step_07 na A100 'parakeet': launch que clona/atualiza o repo, instala deps, roda pytest, extrai o pacote coraa_mupe em /content/local_dataset (data_prep --ensure_colab_dataset SEM --update_state) e chama src.evaluator com --update_state; acompanhar com job-status --job eval_mupe e depois sincronizar o estado do Drive.",
-    "next_exact_command": ".venv/bin/python -m src.colab_guard job-status --job eval_mupe --tail 40",
+    "last_agent_summary": "Step 07 concluída em 26/10 17:49 UTC na A100: clean_wer=0,3622 (0,2997 normalizado, 2.242 amostras) e multitalker_wer=0,4646 (0,4069 normalizado, 1.000 locutores-alvo em 500 misturas). Modelo final = .nemo da Fase 2 (melhor val_wer 0,4347, época 7). Avaliado nos manifestos de validação, os mesmos usados para escolher o checkpoint: números levemente otimistas.",
+    "next_agent_action": "Pipeline finalizado. Próximos passos opcionais: avaliar num conjunto de teste separado (o pacote coraa_mupe só tem train/val; o MUPE tem split test no HF) e, para melhorar o WER, ampliar o corpus ou treinar mais épocas.",
+    "next_exact_command": ".venv/bin/python -m src.state status",
     "critical_warnings": [
       "NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.",
       "No ambiente local (Mac), use sempre os binários `.venv/bin/python` e `.venv/bin/pytest`.",
@@ -500,6 +510,14 @@
       "title": "VM A100 recolhida após a Fase 2 parar de ser monitorada (Mac dormiu); log local do job perdido",
       "problem": "O watcher local consultava o job a cada 15 min; entre 10:37 e 12:53 UTC ele não rodou (Mac provavelmente em repouso) e, às 12:53, a sessão Colab não existia mais (session_not_found). A última validação registrada foi val_wer=0,4347 no passo 44.676 (~09:05 UTC); as validações em 49.144 e 53.628 não imprimiram 'reached' (sem melhora, ou o treino parou). O job seguia 'running' até 10:37, uma hora após o fim previsto (~09:45), o que é compatível com o processo pendurado na saída como no warmup (DISC-029). O log do job estava em /content/jobs (disco da VM) e se perdeu. Além disso, a detecção de log ocioso do watcher não funcionou (log_idle_sec não foi extraído).",
       "solution": "Checkpoints, logs do NeMo (nemo_log_globalrank-0.txt) e o espelho de estado ficam no Drive em exp_coraa_mupe_multitalker/: inspecionar lá numa VM nova. Hipótese a confirmar: o Colab recolhe a VM quando o kernel fica sem execuções por um período (as chamadas de exec do agente funcionavam como keep-alive). Para jobs longos: copiar o log do job para o Drive periodicamente (ex.: cp a cada 10 min dentro do comando do launch) e garantir que o agente continue consultando; validar a extração de log_idle_sec no watcher."
+    },
+    {
+      "id": "DISC-036",
+      "timestamp": "2026-10-26T17:50:22Z",
+      "category": "avaliacao",
+      "title": "Step 07 avaliada nos manifestos de validação usados na seleção do checkpoint; extração do pacote ~12 min",
+      "problem": "O pacote coraa_mupe só tem clean_val/multitalker_val (val_stride 4), e o save_best_model da Fase 2 escolheu o .nemo pelo val_wer desses mesmos dados: o WER da Step 07 (limpo 0,3622 / 0,2997 normalizado; multitalker 0,4646 / 0,4069 normalizado) é levemente otimista. Numa A100 nova, o caminho completo (clone + pip + pytest + extração do .tar.gz de ~36 GB do Drive + avaliação de 3.242 linhas) levou ~15 min.",
+      "solution": "Para um número de referência sem viés, gerar manifestos de teste do split test do nilc-nlp/CORAA-MUPE-ASR (limpo + misturas pelo mesmo mixer) e rodar src.evaluator neles. Na VM, chamar data_prep --ensure_colab_dataset SEM --update_state ao só extrair o pacote: com --update_state ele reconclui as steps 01-04 e devolve o handover para a step_05."
     }
   ]
 }
