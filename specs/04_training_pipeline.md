@@ -71,7 +71,7 @@ Ao carregar o modelo via `from_pretrained` (Fase 1) ou `restore_from` (Fase 2), 
 ## 6. Avaliação Final e Exportação (`step_07_eval_and_export` / `src/evaluator.py`)
 
 Após a conclusão da Fase 2 (`multitalker`), o módulo `src/evaluator.py` executa a validação final do modelo adaptado:
-1. Calcula o **WER (Word Error Rate)** em fala limpa (`clean_val_manifest.json` / `clean_test_manifest.json`) e o **Multitalker WER** em fala sobreposta (`multitalker_val_manifest.json` / `multitalker_test_manifest.json`) condicionada pelas máscaras `spk_targets` e `bg_spk_targets`.
+1. Calcula o **WER (Word Error Rate)** em fala limpa (`clean_val_manifest.json` ou, para o número de referência, `clean_test_manifest.json` da `Spec 01 §2.4`) e o **Multitalker WER** em fala sobreposta (`multitalker_val_manifest.json` / `multitalker_test_manifest.json`) condicionada pelas máscaras `spk_targets` e `bg_spk_targets`, uma vez por contexto de atenção (latência) avaliado.
 2. Valida o relatório de métricas via contrato `EvaluationReport` (`src/schemas.py`), exigindo `clean_wer` e `multitalker_wer` no intervalo `[0.0, 1.0]`, contagens de amostras avaliadas `> 0` e verificação do artefato `.nemo` exportado.
 3. Atualiza `step_07_eval_and_export` para `completed` em `state/pipeline_state.json` e `USER.md`.
 
@@ -80,6 +80,13 @@ Condicionamento por locutor (NeMo 3.0):
 - `unique_eval_cuts()` aplica a conversão da Spec 02 §3.7 ao manifesto e descarta a 2ª cópia de cada par espelhado; para cada cut, as máscaras vêm do `speaker_to_target()` do NeMo (o mesmo caminho do treino) e o modelo decodifica **uma vez por locutor**: `set_speaker_targets(alvo, demais)` → `forward` → `decoding.rnnt_decoder_predictions_tensor`, comparando com o texto daquele locutor. Fala limpa usa o mesmo caminho (1 locutor: alvo = 1, fundo = 0). O número de amostras avaliadas é o de linhas do manifesto.
 - O relatório traz também o WER normalizado (`normalize_for_wer`: minúsculas, pontuação trocada por espaço), porque as referências do CORAA-MUPE têm caixa e pontuação: `clean_wer_normalized` e `multitalker_wer_normalized`.
 - `--max_lines N` limita cada manifesto às primeiras `N` linhas (teste de fumaça na VM).
+- Os cuts são decodificados em ordem de duração (lotes com menos *padding*); o WER não depende da ordem.
+
+Contexto de atenção (latência):
+- Fora do treino, o FastConformer do NeMo 3.0 decodifica sempre com `encoder.att_context_size`, que é **o primeiro** item de `att_context_size_all`; essa lista vem do `cfg` com que o modelo foi instanciado (§8.7). O avaliador não depende desse padrão: antes de cada passada, chama `encoder.set_default_att_context_size([L, R])`.
+- `--att_context_size L R` (repetível) escolhe os contextos. Sem ele, `resolve_eval_contexts()` avalia todos os de `att_context_size_all`, do maior *lookahead* para o menor. Latência do modo (`latency_ms()`): `(R + 1) × 80 ms`, ou seja `[70, 13]` = 1.120 ms, `[70, 6]` = 560 ms, `[70, 1]` = 160 ms e `[70, 0]` = 80 ms.
+- `--output_report` recebe uma **lista JSON** de `EvaluationReport`, um por contexto, cada um com `att_context_size`. (O `eval_report.json` da Step 07 de 26/10, na validação, é um objeto único decodificado em `[70, 0]`, §8.7.)
+- `--metrics_prefix` (ex.: `test_`) separa no `state` as métricas do teste das da validação. `eval_state_metrics()` grava, por contexto, `<prefixo>clean_wer_<lat>ms`, `<prefixo>clean_wer_normalized_<lat>ms`, `<prefixo>multitalker_wer_<lat>ms` e `<prefixo>multitalker_wer_normalized_<lat>ms`, além de `<prefixo>clean_samples` e `<prefixo>multitalker_samples`; o caminho do relatório vai no artefato `<prefixo>eval_report`.
 
 ---
 
@@ -102,6 +109,7 @@ Condicionamento por locutor (NeMo 3.0):
   14. `install_fast_grad_guard()` desliga o `_skip_nan_grad` do NeMo, preserva o `on_before_optimizer_step` original, zera os gradientes quando a norma total não é finita e recorta a norma em `clip_val`; com `optim.fused: true` (YAML da Fase 2), `split_fused_gradient_clipping()` tira `gradient_clip_val` do `trainer` e o devolve; sem `fused` (Fase 1), não altera nada (§8.6).
   15. `unique_eval_cuts()` produz 1 cut por mistura (sem a cópia do par espelhado) e 1 por linha limpa, com total de locutores-alvo igual ao número de linhas do manifesto; `normalize_for_wer()` remove caixa e pontuação; `EvaluationReport` aceita os campos normalizados opcionais (§6).
   16. O YAML da Fase 2 usa `train_ds.batch_size: 32` e `accumulate_grad_batches: 1` (§8.6).
+  17. `latency_ms()` converte `[L, R]` em `(R + 1) × 80` ms; `resolve_eval_contexts()` devolve os contextos pedidos ou, sem pedido, todos os do encoder, do maior *lookahead* ao menor; `eval_state_metrics()` gera as chaves por latência com o prefixo; `EvaluationReport.att_context_size` tem exatamente 2 inteiros (§6).
 
 ---
 
@@ -172,3 +180,8 @@ Regras:
 - `install_fast_grad_guard()` (ambas as fases, após `apply_stage_optimizations_to_nemo_model`) desliga o `_skip_nan_grad` do NeMo e faz a proteção no `on_before_optimizer_step`, **uma vez por passo do otimizador** (após a acumulação): calcula a norma total dos gradientes com uma única sincronização; se não for finita, zera os gradientes (o passo é descartado, como o NeMo faria). Com `clip_val`, a mesma chamada (`torch.nn.utils.clip_grad_norm_`) aplica o recorte de norma.
 - `optim.fused: true` no YAML da Fase 2 (o NeMo repassa as chaves extras de `optim` ao `torch.optim.AdamW`). O plugin de precisão mista do Lightning **recusa** `gradient_clip_val` com otimizador *fused* (`RuntimeError: ... does not allow for gradient clipping because it performs unscaling of gradients internally`), mesmo em bf16. Por isso `split_fused_gradient_clipping()` remove `trainer.gradient_clip_val` quando `optim.fused` é verdadeiro e o devolve como `clip_val` do `install_fast_grad_guard()` — o YAML continua declarando o recorte.
 - **Lote 32 sem acumulação** na Fase 2 (antes 16 × 2; mesmo lote efetivo, mesma taxa de aprendizado). Medições na A100-80GB, em sequência: lote 16 × 2 original 3,03 lotes/s (48 amostras/s); com o guard de gradientes 3,98 lotes/s (64 amostras/s); com AdamW *fused* 4,0 lotes/s (sem ganho mensurável); com lote 32 × 1, **3,67 lotes/s (117 amostras/s, 1,84×)**, GPU a 97% e 48,7 GB de 80 GB. Com o guard e o *fused*, o perfil mostrava ~44% do tempo do processo principal fora do Python (lançamento de kernels): com lote 16, as operações por camada são pequenas demais para a A100. A época da Fase 2 passou de ~38 para ~20 min.
+
+### 8.7 Contexto Padrão do Encoder (Latência) na Fase 2 e no `.nemo` Final
+- `apply_stage_optimizations_to_nemo_model()` grava `encoder.att_context_size` só no `asr_model.cfg`; o encoder já instanciado mantém a lista com que foi construído. Na Fase 2, o encoder vem do `.nemo` do warmup, com a ordem do checkpoint original (`[[70, 13], [70, 6], [70, 1], [70, 0]]`): o treino sorteia um dos 4 contextos por lote (`att_context_probs`), e a validação usa `[70, 13]` (1,12 s). O `val_wer` da Fase 2 (melhor 0,4347) é, portanto, de 1,12 s.
+- O `.nemo` final grava o `cfg` com a ordem do YAML (`[[70, 0], [70, 1], [70, 6], [70, 13]]`). Restaurado, o encoder tem `[70, 0]` (80 ms) como padrão: a Step 07 de 26/10 (limpo 0,3622, multitalker 0,4646) decodificou em 80 ms e não é comparável ao `val_wer` da Fase 2.
+- Quem usar o `.nemo` final (`transcribe()` ou *streaming*) deve escolher a latência com `asr_model.encoder.set_default_att_context_size([70, R])`. O avaliador já faz isso (§6).

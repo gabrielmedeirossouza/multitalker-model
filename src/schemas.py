@@ -295,6 +295,8 @@ class EvaluationReport(BaseModel):
     # Sem caixa e pontuação (Spec 04 §6): as referências do CORAA-MUPE têm ambas
     clean_wer_normalized: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     multitalker_wer_normalized: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    # [esquerda, direita] em frames de 80 ms usado na decodificação (Spec 04 §6); None nos relatórios antigos
+    att_context_size: Optional[List[int]] = Field(default=None, min_length=2, max_length=2)
     evaluated_at: str = Field(..., min_length=1)
 
 

@@ -50,6 +50,23 @@ Aplicada a toda transcrição antes do manifesto (`normalize_transcript()`):
 
 `--val_stride K` mantém 1 a cada `K` amostras do split de validação (distribuídas ao longo de todas as entrevistas, ao contrário de um corte nas primeiras `N`). O MUPE tem 9.894 segmentos de validação (~11 h); `K = 4` reduz o custo de cada validação na A100 a ~2,5 mil amostras.
 
+### 2.4. Conjunto de Teste Separado (`--ensure_colab_test_set`)
+
+O pacote principal só tem treino e validação, e a validação escolhe o checkpoint (`save_best_model`, `Spec 04 §4`): o WER medido nela é otimista. O conjunto de teste vem do split `test` do Hub e fica num pacote próprio, para não reconstruir nem sobrescrever o `.tar.gz` de ~36 GB (DISC-029):
+
+| Item | Valor |
+|---|---|
+| Comando (VM) | `python -m src.data_prep --ensure_colab_test_set --dataset coraa_mupe --test_stride 4` |
+| Diretório local | `<local_dataset_dir>/test/` (`clean_test_manifest.json`, `multitalker_test_manifest.json`, `wavs/`) |
+| Pacote no Drive | `<drive_root_dir>/<dataset>/ptbr_test_16khz.tar.gz` |
+| Fala limpa | split `test`, 1 a cada `--test_stride` amostras (§2.3), com os filtros e a normalização da §2.2 |
+| Misturas | `--num_test_mixtures` (padrão 500) pelo mixer da `Spec 02`, só com locutores do teste, `clean_ratio = 0` |
+
+- Se o pacote já existir no Drive, apenas o extrai em `<local_dataset_dir>/test/` (quando o manifesto multitalker ainda não está lá).
+- O pacote é gravado como `ptbr_test_16khz.tar.gz.partial` e renomeado no fim: uma queda da VM durante o empacotamento não deixa um pacote truncado que o caminho rápido aceitaria.
+- Não altera `state/pipeline_state.json`: as Steps 01–04 continuam se referindo ao pacote principal.
+- No MUPE, o split `test` tem 30 entrevistas (30.968 segmentos, 28.997 com `audio_quality = high`, quase todos de entrevistados). Pelas estatísticas do datasets-server do Hub (2026-10-26), nenhuma dessas entrevistas aparece na validação nem nas ~37 mil linhas do treino que ele cobre. Com `--test_stride 4`, ficam ~7 mil segmentos (~7,5 h).
+
 ---
 
 ## 3. Regras e Restrições Acústicas Obrigatórias
@@ -66,6 +83,7 @@ Aplicada a toda transcrição antes do manifesto (`normalize_transcript()`):
    - O download dos datasets (`step_01`), treino do tokenizador (`step_02`), mixagem sintética (`step_03`) e empacotamento `.tar.gz` (`step_04`) rodam diretamente no SSD NVMe da VM do Google Colab (`/content/local_dataset/`) com persistência automática em `/content/drive/MyDrive/parakeet_ptbr/<dataset>/` via `python -m src.data_prep --ensure_colab_dataset`.
    - **Artefatos por corpus:** pacote e tokenizador ficam em `<drive_root_dir>/<dataset>/` (ex.: `/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/ptbr_dataset_16khz.tar.gz` e `.../coraa_mupe/tokenizer_ptbr_1024`). Assim, trocar `--dataset` nunca reaproveita o pacote ou o tokenizador de outro corpus. (Os artefatos legados do FLEURS ficaram na raiz `/content/drive/MyDrive/parakeet_ptbr/`.)
    - Caso o pacote do corpus já exista no Google Drive em sessões subsequentes, `--ensure_colab_dataset` apenas o extrai para `/content/local_dataset/`.
+   - O conjunto de teste tem pacote próprio no mesmo diretório do corpus (`ptbr_test_16khz.tar.gz`, §2.4).
    - O `.tar.gz` usa `compresslevel=1`: WAV PCM comprime pouco, e o nível 9 padrão do `tarfile` levaria dezenas de minutos para ~40 GB.
 
 ---
@@ -111,3 +129,4 @@ Para misturas sintéticas sobrepostas, cada linha especifica o áudio misturado,
   6. Validar `normalize_transcript()`: remoção de anotações entre parênteses, descarte de segmentos truncados (`<`/`>`), NFC e colapso de `\xa0`.
   7. Validar `export_hf_dataset_to_nemo_manifest()` com um dataset falso em memória: alias de split, filtro `allowed_values`, `speaker_id` composto e `val_stride`.
   8. Validar que `ensure_colab_dataset_ready()` procura pacote e tokenizador em `<drive_root_dir>/<dataset>/`.
+  9. Validar `ensure_colab_test_set()` com um dataset falso: manifestos em `<local_dataset_dir>/test/`, `.wav` nomeados pelo split `test`, misturas só com locutores do teste, pacote `ptbr_test_16khz.tar.gz` sem `.partial` restante e caminho rápido que extrai o pacote existente sem baixar nada (§2.4).

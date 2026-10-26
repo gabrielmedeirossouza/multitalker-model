@@ -2,6 +2,8 @@
 
 import json
 import math
+from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -21,12 +23,20 @@ from src.schemas import (
 from src.data_prep import (
     SUPPORTED_HF_DATASETS,
     ensure_colab_dataset_ready,
+    ensure_colab_test_set,
     export_hf_dataset_to_nemo_manifest,
     normalize_transcript,
     pack_dataset_for_colab_ssd,
     rewrite_manifest_audio_paths,
 )
-from src.evaluator import compute_word_error_rate, normalize_for_wer, unique_eval_cuts
+from src.evaluator import (
+    compute_word_error_rate,
+    eval_state_metrics,
+    latency_ms,
+    normalize_for_wer,
+    resolve_eval_contexts,
+    unique_eval_cuts,
+)
 from src.trainer import (
     align_max_steps_to_val_interval,
     apply_stage_optimizations_to_nemo_model,
@@ -470,6 +480,37 @@ def test_unique_eval_cuts_decodes_each_speaker_once():
     assert [s.text for s in cuts[0].supervisions] == ["Fala A.", "Fala B."]
 
 
+def test_eval_contexts_latency_and_state_metrics():
+    assert [latency_ms(ctx) for ctx in REQUIRED_ATT_CONTEXT_SIZE] == [80, 160, 560, 1120]
+    # Padrão do .nemo final: [70, 0] primeiro; o avaliador vai do maior lookahead ao menor (Spec 04 §6, §8.7)
+    encoder = SimpleNamespace(att_context_size_all=REQUIRED_ATT_CONTEXT_SIZE, att_context_size=[70, 0])
+    assert resolve_eval_contexts(encoder) == [[70, 13], [70, 6], [70, 1], [70, 0]]
+    assert resolve_eval_contexts(encoder, [(70, 13)]) == [[70, 13]]
+    assert resolve_eval_contexts(SimpleNamespace(att_context_size=[-1, -1])) == [[-1, -1]]
+
+    base = dict(
+        model_path="/content/drive/MyDrive/model.nemo",
+        clean_manifest_path="/content/local_dataset/test/clean_test_manifest.json",
+        multitalker_manifest_path="/content/local_dataset/test/multitalker_test_manifest.json",
+        clean_samples_evaluated=10,
+        multitalker_samples_evaluated=4,
+        evaluated_at="2026-10-26T12:00:00Z",
+    )
+    reports = [
+        EvaluationReport(**base, clean_wer=0.3, multitalker_wer=0.4, clean_wer_normalized=0.25,
+                         multitalker_wer_normalized=0.35, att_context_size=[70, 13]),
+        EvaluationReport(**base, clean_wer=0.36, multitalker_wer=0.46, clean_wer_normalized=0.3,
+                         multitalker_wer_normalized=0.41, att_context_size=[70, 0]),
+    ]
+    metrics = eval_state_metrics(reports, prefix="test_")
+    assert metrics["test_clean_wer_normalized_1120ms"] == 0.25
+    assert metrics["test_multitalker_wer_80ms"] == 0.46
+    assert metrics["test_clean_samples"] == 10 and metrics["test_multitalker_samples"] == 4
+    assert len(metrics) == 2 * 4 + 2 and all(key.startswith("test_") for key in metrics)
+    with pytest.raises(ValidationError):
+        EvaluationReport(**base, clean_wer=0.3, multitalker_wer=0.4, att_context_size=[70])
+
+
 def test_ensure_colab_dataset_ready_fast_path_extracts_existing_tar(tmp_path):
     # Simula um pacote já existente no Google Drive (/content/drive/MyDrive/parakeet_ptbr)
     staging = tmp_path / "staging"
@@ -585,6 +626,35 @@ def test_export_val_stride_keeps_one_every_k(tmp_path):
     )
     texts = [json.loads(line)["text"] for line in manifest.read_text(encoding="utf-8").splitlines()]
     assert texts == ["Frase número 0.", "Frase número 4.", "Frase número 8."]
+
+
+def test_ensure_colab_test_set_builds_separate_pack_and_fast_path(tmp_path):
+    items = [_fake_mupe_item(f"Frase {i} do teste.", speaker_code=f"MA_T{i % 3}") for i in range(8)]
+    local = tmp_path / "local_dataset"
+    drive = tmp_path / "drive_parakeet"
+    tar_path = ensure_colab_test_set(
+        local_dataset_dir=str(local), drive_root_dir=str(drive), test_stride=2, num_test_mixtures=3, dataset=items
+    )
+    # Pacote próprio no diretório do corpus, sem .partial e sem tocar no pacote principal (Spec 01 §2.4)
+    assert tar_path == drive / "coraa_mupe" / "ptbr_test_16khz.tar.gz"
+    assert tar_path.exists() and not tar_path.with_name(tar_path.name + ".partial").exists()
+    assert not (drive / "coraa_mupe" / "ptbr_dataset_16khz.tar.gz").exists()
+
+    test_root = local / "test"
+    clean = [json.loads(line) for line in (test_root / "clean_test_manifest.json").read_text(encoding="utf-8").splitlines()]
+    assert [r["text"] for r in clean] == [f"Frase {i} do teste." for i in (0, 2, 4, 6)]
+    assert all(Path(r["audio_filepath"]).name.startswith("coraa_mupe_test_") for r in clean)
+    mixed = [
+        json.loads(line) for line in (test_root / "multitalker_test_manifest.json").read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(mixed) == 2 * 3
+    assert all(Path(r["audio_filepath"]).name.startswith("mix_multitalker_test_manifest_") for r in mixed)
+    assert {r["speaker_id"] for r in mixed} <= {r["speaker_id"] for r in clean}
+
+    # VM nova com o pacote no Drive: só extrai, sem baixar o split (dataset=None)
+    fresh = tmp_path / "fresh_vm"
+    assert ensure_colab_test_set(local_dataset_dir=str(fresh), drive_root_dir=str(drive)) == tar_path
+    assert (fresh / "test" / "multitalker_test_manifest.json").exists()
 
 
 def test_install_fast_grad_guard_replaces_per_tensor_check():

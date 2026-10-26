@@ -432,6 +432,60 @@ def ensure_colab_dataset_ready(
     return tar_gz_path
 
 
+def ensure_colab_test_set(
+    dataset_key: str = "coraa_mupe",
+    local_dataset_dir: str = "/content/local_dataset",
+    drive_root_dir: str = "/content/drive/MyDrive/parakeet_ptbr",
+    test_stride: int = 4,
+    num_test_mixtures: int = 500,
+    max_samples: Optional[int] = None,
+    dataset: Optional[Any] = None,
+) -> Path:
+    """
+    Conjunto de teste separado (Spec 01 §2.4): fala limpa do split `test` (1 a cada `test_stride`) e misturas
+    só com locutores do teste em `<local_dataset_dir>/test/`, num pacote próprio
+    `<drive_root_dir>/<dataset>/ptbr_test_16khz.tar.gz`. Com o pacote já no Drive, apenas o extrai.
+    `dataset` injeta o split `test` já carregado (testes).
+    """
+    from src.mixer import generate_mixed_dataset_from_manifest
+
+    test_root = Path(local_dataset_dir) / "test"
+    tar_gz_path = Path(drive_root_dir) / dataset_key / "ptbr_test_16khz.tar.gz"
+    clean_manifest = test_root / "clean_test_manifest.json"
+    multi_manifest = test_root / "multitalker_test_manifest.json"
+    test_root.mkdir(parents=True, exist_ok=True)
+
+    if tar_gz_path.exists():
+        if not multi_manifest.exists():
+            with tarfile.open(tar_gz_path, "r:gz") as tar:
+                tar.extractall(path=test_root)
+        return tar_gz_path
+
+    export_hf_dataset_to_nemo_manifest(
+        dataset_key=dataset_key,
+        split="test",
+        output_dir=str(test_root),
+        manifest_filename=clean_manifest.name,
+        max_samples=max_samples,
+        resume=True,
+        stride=test_stride,
+        dataset=dataset,
+    )
+    generate_mixed_dataset_from_manifest(
+        clean_manifest_path=str(clean_manifest),
+        output_dir=str(test_root),
+        output_manifest_path=str(multi_manifest),
+        num_mixtures=num_test_mixtures,
+        clean_ratio=0.0,
+        resume=True,
+    )
+    # Nome provisório: uma queda durante o empacotamento não deixa pacote truncado para o caminho rápido
+    partial_path = tar_gz_path.with_name(tar_gz_path.name + ".partial")
+    pack_dataset_for_colab_ssd(dataset_dir=str(test_root), output_tar_gz=str(partial_path))
+    partial_path.rename(tar_gz_path)
+    return tar_gz_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Preparação de datasets PT-BR em 16kHz para NeMo (Spec 01).")
     parser.add_argument("--dataset", choices=list(SUPPORTED_HF_DATASETS.keys()), default="fleurs_pt")
@@ -461,9 +515,28 @@ def main() -> None:
     parser.add_argument("--num_train_mixtures", type=int, default=50000)
     parser.add_argument("--num_val_mixtures", type=int, default=500)
     parser.add_argument("--val_stride", type=int, default=1, help="Mantém 1 a cada N amostras da validação (Spec 01 §2.3).")
+    parser.add_argument(
+        "--ensure_colab_test_set",
+        action="store_true",
+        help="Gera/extrai o conjunto de teste separado em <local_dataset_dir>/test (Spec 01 §2.4).",
+    )
+    parser.add_argument("--test_stride", type=int, default=4, help="Mantém 1 a cada N amostras do teste (Spec 01 §2.4).")
+    parser.add_argument("--num_test_mixtures", type=int, default=500)
     parser.add_argument("--no_resume", action="store_true", help="Desativa retomada incremental e recria o manifesto do zero.")
     parser.add_argument("--update_state", action="store_true", help="Atualiza state/pipeline_state.json e USER.md.")
     args = parser.parse_args()
+
+    if args.ensure_colab_test_set:
+        archive = ensure_colab_test_set(
+            dataset_key=args.dataset,
+            local_dataset_dir=args.local_dataset_dir,
+            drive_root_dir=args.drive_root_dir,
+            test_stride=args.test_stride,
+            num_test_mixtures=args.num_test_mixtures,
+            max_samples=args.max_samples,
+        )
+        print(f"[Spec 01 §2.4] Conjunto de teste pronto em {Path(args.local_dataset_dir) / 'test'} (Drive: {archive})")
+        return
 
     if args.ensure_colab_dataset:
         archive = ensure_colab_dataset_ready(
