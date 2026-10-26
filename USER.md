@@ -5,18 +5,14 @@
 ## 1. Resumo Executivo
 
 - **Projeto:** `parakeet-ptbr-multitalker` (`nvidia/multitalker-parakeet-streaming-0.6b-v1`)
-- **Status Geral:** 🛑 Aguardando Ação do Usuário
-- **Etapa Atual:** `step_06_colab_stage2_multitalker` — Treinamento Fase 2 (Multitalker Cache-Aware + Speaker Kernels) na GPU A100 (`colab_a100`)
-- **Última Atualização (UTC):** `2026-10-25T12:54:53Z`
+- **Status Geral:** 🟢 Pronto para Iniciar / Continuar
+- **Etapa Atual:** `step_07_eval_and_export` — Avaliação Final (WER Limpo e Sobreposto) e Exportação do Checkpoint .nemo (`colab_a100`)
+- **Última Atualização (UTC):** `2026-10-26T17:34:02Z`
 
 ## 2. O Que o Usuário Precisa Fazer Agora (Impedimentos / Ações)
 
-> [!IMPORTANT]
-> Existem impedimentos ativos que exigem ação humana antes do próximo passo de GPU/Rede:
-
-| ID | Etapa | Impedimento | Ação Necessária do Usuário |
-|---|---|---|---|
-| `blocker_colab_drive_auth` | `step_06_colab_stage2_multitalker` | Colab pediu interação humana (drive_auth) durante `bridge drive-mount`. | **Abra a URL de autorização do Google Drive no navegador, aprove o acesso para esta VM do Colab e responda 'ok' ao agente. URL: https://accounts.google.com/o/oauth2/v2/auth?access_type=offline&client_id=947318989803-rvmefmc9rok273go8589cmo21dkvjb2q.apps.googleusercontent.com&enable_granular_consent=true&login_hint=gmsgabrielmedeiros%40gmail.com&prompt=consent&redirect_uri=https%3A%2F%2Fcolab.research.google.com%2Ftun%2Fm%2Fauthorize-for-drive-credentials-ephem&response_type=none+gsession&scope=email+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly&state=%7B%22token%22%3A%22CgvjWKNRqDWULGSHOPwa8FNiGhk%3A1792932874121%22%2C%22endpoint%22%3A%22m-hm-kkb-euw4b1-2o2er9mzcanng%22%2C%22scopes%22%3A%5B%22email%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fclient_channel%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdocs.test%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.activity.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fdrive.photos.readonly%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fexperimentsandconfigs%22%2C%22https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fpeopleapi.readonly%22%5D%7D** |
+- **Nenhum impedimento bloqueante no momento.** Os agentes de IA podem prosseguir com a etapa atual.
+- **Pré-requisitos futuros (Etapas 04 a 07):** Ter conta Google Colab Pro/Pro+ com GPU **NVIDIA A100** e espaço no Google Drive (`/content/drive/MyDrive/parakeet_ptbr`).
 
 ## 3. Progresso das Etapas (Pipeline Stateful)
 
@@ -28,16 +24,16 @@
 | 3 | `step_03_mixer_multitalker` | `colab_cpu` | ✅ Concluído | `train_mixtures=1000`, `train_lines=2857`, `val_mixtures=200`, `val_lines=400`, multitalker_train_manifest: `/content/local_dataset/multitalker_train_manifest.json`, multitalker_val_manifest: `/content/local_dataset/multitalker_val_manifest.json` |
 | 4 | `step_04_pack_and_upload_drive` | `colab_cpu` | ✅ Concluído | `bundle_size_gb=26`, colab_bundle_tar_gz: `/content/drive/MyDrive/parakeet_ptbr/coraa_mupe/ptbr_dataset_16khz.tar.gz` |
 | 5 | `step_05_colab_stage1_warmup` | `colab_a100` | ✅ Concluído | `val_wer_step_4000=0.7439`, `steps_per_sec=6.5`, `max_steps=24000`, `val_wer_step_8000=0.6720`, `val_wer_step_12000=0.6411`, `multitalker_train_lines=142866`, `multitalker_val_lines=1000`, `train_mixtures=50004`, `val_wer_final=0.6114`, warmup_checkpoint_dir: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup`, warmup_nemo: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_warmup/parakeet_ptbr_warmup/checkpoints/parakeet_ptbr_warmup.nemo` |
-| 6 | `step_06_colab_stage2_multitalker` | `colab_a100` | 🔄 Em Execução | `batches_per_sec_v1=2.93`, `gpu_util_v1=0.5`, `max_steps=53628`, `batches_per_sec_v2=3.47`, `val_wer_epoch_0=0.5786`, `batches_per_sec_fused=4.0`, `val_wer_step_8932=0.5258`, `samples_per_sec_b32=117`, `val_wer_step_13400=0.5022`, `val_wer_step_22336=0.4716`, `val_wer_step_26804=0.4614`, `val_wer_step_35740=0.4456`, `val_wer_step_44676=0.4347` |
+| 6 | `step_06_colab_stage2_multitalker` | `colab_a100` | ✅ Concluído | `batches_per_sec_v1=2.93`, `gpu_util_v1=0.5`, `max_steps=53628`, `batches_per_sec_v2=3.47`, `val_wer_epoch_0=0.5786`, `batches_per_sec_fused=4.0`, `val_wer_step_8932=0.5258`, `samples_per_sec_b32=117`, `val_wer_step_13400=0.5022`, `val_wer_step_22336=0.4716`, `val_wer_step_26804=0.4614`, `val_wer_step_35740=0.4456`, `val_wer_step_44676=0.4347`, `val_wer_best=0.4347`, `val_wer_epoch_11=0.4417`, multitalker_checkpoint_dir: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker`, multitalker_nemo: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker.nemo`, multitalker_best_ckpt: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker--val_wer=0.4347-epoch=7.ckpt`, multitalker_last_ckpt: `/content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/checkpoints/parakeet_ptbr_multitalker--val_wer=0.4417-epoch=11-last.ckpt` |
 | 7 | `step_07_eval_and_export` | `colab_a100` | ⏳ Pendente | — |
 
 ## 4. Handover para o Próximo Agente de IA
 
-- **Resumo da Última Sessão:** Fase 2: val_wer 0,5786 -> 0,5258 -> 0,5022 -> 0,4716 -> 0,4614 -> 0,4456 -> 0,4347 (passo 44.676, ~09:05 UTC). A VM A100 foi recolhida entre 10:37 e 12:53 UTC; falta confirmar no Drive se o treino chegou a 53.628 passos e salvou o .nemo.
-- **Próxima Ação do Agente:** Usuário autoriza o Drive na VM CPU nova (blocker_colab_drive_auth). Depois: inspecionar /content/drive/MyDrive/parakeet_checkpoints/exp_coraa_mupe_multitalker/parakeet_ptbr_multitalker/ (checkpoints/*.nemo, *-last.ckpt, nemo_log_globalrank-0.txt e state/ espelhado). Se o .nemo final existir e o log mostrar max_steps=53628 atingido: concluir a step_06 e rodar a step_07 numa VM com GPU (extrair o pacote, src.evaluator). Se não: relançar a Fase 2 numa A100 a partir do -last.ckpt com --max_steps 53628.
+- **Resumo da Última Sessão:** Fase 2 concluída em 25/10 09:45 UTC (complete_step do trainer espelhado no Drive): 12 épocas, max_steps 53.628. Melhor val_wer 0,4347 (época 7, passo 44.676); última época 0,4417. O .nemo final (save_best_model, pesos da época 7) é um tar válido de 2,49 GB.
+- **Próxima Ação do Agente:** Rodar a step_07 na A100 'parakeet': launch que clona/atualiza o repo, instala deps, roda pytest, extrai o pacote coraa_mupe em /content/local_dataset (data_prep --ensure_colab_dataset SEM --update_state) e chama src.evaluator com --update_state; acompanhar com job-status --job eval_mupe e depois sincronizar o estado do Drive.
 - **Comando Exato para o Próximo Agente:**
   ```bash
-  .venv/bin/python -m src.colab_guard drive
+  .venv/bin/python -m src.colab_guard job-status --job eval_mupe --tail 40
   ```
 - **Alertas Técnicos Críticos:**
   - NUNCA baixe datasets de áudio reais no Mac local; use sempre a VM do Colab (/content/local_dataset) + Google Drive.
